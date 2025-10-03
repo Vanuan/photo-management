@@ -1,0 +1,55 @@
+{
+  "name": "@shared-infra/storage",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared infrastructure packages for photo management storage layer",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "clean": "npm run clean --workspaces",
+    "dev": "npm run dev --workspace=@shared-infra/storage-service",
+    "docker:build": "docker build -t storage-service packages/storage-service",
+    "docker:run": "docker run -p 3001:3001 storage-service",
+    "setup": "npm install && npm run build",
+    "lint": "eslint packages/*/src/**/*.ts",
+    "lint:fix": "eslint packages/*/src/**/*.ts --fix",
+    "format": "prettier --write packages/*/src/**/*.{ts,js,json}",
+    "format:check": "prettier --check packages/*/src/**/*.{ts,js,json}"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^8.45.0",
+    "@typescript-eslint/parser": "^8.45.0",
+    "concurrently": "^8.2.0",
+    "eslint": "^8.55.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.5.4",
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.0",
+    "prettier": "^3.1.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-org/receipt-processor.git",
+    "directory": "photo-management/shared-infra"
+  },
+  "keywords": [
+    "storage",
+    "photos",
+    "minio",
+    "sqlite",
+    "microservice"
+  ],
+  "author": "Your Organization",
+  "license": "MIT"
+}

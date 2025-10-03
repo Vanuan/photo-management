@@ -1,0 +1,220 @@
+version: '3.8'
+
+services:
+  # MinIO object storage
+  minio:
+    image: minio/minio:latest
+    container_name: storage-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"    # MinIO API
+      - "9001:9001"    # MinIO Console
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+      - MINIO_REGION_NAME=us-east-1
+    volumes:
+      - minio_data:/data
+      - ./scripts/minio-init.sh:/docker-entrypoint-initdb.d/init.sh:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 10s
+    networks:
+      - storage-network
+
+  # Storage Service
+  storage-service:
+    build:
+      context: .
+      dockerfile: packages/storage-service/Dockerfile
+      target: development
+    container_name: storage-service
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - HOST=0.0.0.0
+      - SQLITE_PATH=/app/data/storage.db
+      - MINIO_ENDPOINT=minio
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_USE_SSL=false
+      - MINIO_REGION=us-east-1
+      - CACHE_ENABLED=true
+      - CACHE_TTL=300
+      - CACHE_MAX_SIZE=1000
+      - LOG_LEVEL=debug
+    volumes:
+      - ./packages:/app/packages
+      - ./node_modules:/app/node_modules
+      - storage_data:/app/data
+      - /app/packages/storage-core/node_modules
+      - /app/packages/storage-service/node_modules
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - storage-network
+    restart: unless-stopped
+
+  # Storage Service (Production Build)
+  storage-service-prod:
+    build:
+      context: .
+      dockerfile: packages/storage-service/Dockerfile
+      target: production
+    container_name: storage-service-prod
+    ports:
+      - "3002:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - HOST=0.0.0.0
+      - SQLITE_PATH=/app/data/storage.db
+      - MINIO_ENDPOINT=minio
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_USE_SSL=false
+      - MINIO_REGION=us-east-1
+      - CACHE_ENABLED=true
+      - CACHE_TTL=300
+      - CACHE_MAX_SIZE=1000
+      - LOG_LEVEL=info
+    volumes:
+      - storage_data_prod:/app/data
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - storage-network
+    restart: unless-stopped
+    profiles:
+      - production
+
+  # Example client application
+  example-app:
+    build:
+      context: .
+      dockerfile: examples/Dockerfile
+    container_name: storage-example-app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - STORAGE_SERVICE_URL=http://storage-service:3001
+      - MINIO_ENDPOINT=minio
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_USE_SSL=false
+    depends_on:
+      storage-service:
+        condition: service_healthy
+    networks:
+      - storage-network
+    profiles:
+      - examples
+
+volumes:
+  minio_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/minio
+  storage_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/sqlite
+  storage_data_prod:
+    driver: local
+
+networks:
+  storage-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# Override for development
+# Use: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+---
+# Development override
+version: '3.8'
+
+x-dev-volumes: &dev-volumes
+  - ./packages:/app/packages:cached
+  - ./node_modules:/app/node_modules:delegated
+  - ./data:/app/data:cached
+
+services:
+  storage-service:
+    volumes: *dev-volumes
+    command: npm run dev --workspace=@shared-infra/storage-service
+    environment:
+      - LOG_LEVEL=debug
+      - CACHE_TTL=60  # Shorter cache for development
+    stdin_open: true
+    tty: true
+
+  # Development database viewer
+  sqlite-viewer:
+    image: coleifer/sqlite-web:latest
+    container_name: sqlite-viewer
+    ports:
+      - "8080:8080"
+    volumes:
+      - storage_data:/data
+    command: sqlite_web -H 0.0.0.0 -p 8080 /data/storage.db
+    depends_on:
+      - storage-service
+    networks:
+      - storage-network
+    profiles:
+      - debug
+
+  # MinIO client for debugging
+  mc:
+    image: minio/mc:latest
+    container_name: minio-client
+    depends_on:
+      - minio
+    networks:
+      - storage-network
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc admin info myminio;
+      mc mb myminio/images --ignore-existing;
+      mc mb myminio/images-large --ignore-existing;
+      mc mb myminio/videos --ignore-existing;
+      mc mb myminio/files --ignore-existing;
+      mc policy set public myminio/images;
+      mc policy set public myminio/images-large;
+      mc policy set public myminio/videos;
+      mc policy set public myminio/files;
+      echo 'MinIO setup complete';
+      tail -f /dev/null;
+      "
+    profiles:
+      - debug
