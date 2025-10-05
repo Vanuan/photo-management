@@ -63,7 +63,7 @@ The Shared Infrastructure Layer serves as the **coordination backbone** between 
 
 | Component | Primary Responsibility | Secondary Responsibilities |
 |-----------|----------------------|---------------------------|
-| **Job Queue Coordinator** | Message routing, job lifecycle management | Priority scheduling, retry policies, dead letter handling (see [Job Queue Coordinator Design](./job-queue-coordinator-design.md)) |
+| **Job Queue Coordinator** | Message routing, job lifecycle management | Priority scheduling, retry policies, dead letter handling (see [Job Queue Coordinator Design](./job-queue/job-queue-coordinator-design.md)) |
 | **Storage Layer Coordinator** | Unified storage interface, consistency | Blob management, metadata persistence, transaction coordination (see [Storage Layer Design](./storage/storage-layer-design.md)) |
 | **Event Bus Service** | Real-time event propagation | Client room management, subscription routing, event filtering |
 | **Configuration Manager** | Environment configuration, feature flags | Dynamic reconfiguration, validation, schema management |
@@ -76,7 +76,7 @@ The Shared Infrastructure Layer serves as the **coordination backbone** between 
 
 ### 2.1 Job Queue Coordinator
 
-> **Note**: The Job Queue Coordinator has been moved to a separate design document for better modularity and focused documentation. See [Job Queue Coordinator Design Document](./job-queue-coordinator-design.md) for complete specifications including:
+> **Note**: The Job Queue Coordinator has been moved to a separate design document for better modularity and focused documentation. See [Job Queue Coordinator Design Document](./job-queue/job-queue-coordinator-design.md) for complete specifications including:
 >
 > - Core architecture and interfaces
 > - Queue management and configuration
@@ -140,432 +140,31 @@ interface StorageCoordinator {
 
 ### 2.3 Event Bus Service
 
-#### 2.3.1 Event Bus Architecture
+The Event Bus Service provides centralized real-time event distribution for the photo management platform. For detailed architecture, implementation, and deployment information, see the [Event Bus Service Design Document](./event-bus/event-bus-service-design.md).
 
+**Key Features:**
+- **Real-time Event Distribution**: WebSocket-based event broadcasting to connected clients
+- **Redis Pub/Sub Integration**: Scalable message distribution across service instances
+- **Room Management**: Client grouping and targeted event routing
+- **Event Filtering**: Configurable event transformation and routing rules
+- **Subscription Management**: Backend service event subscription handling
+
+**Core Interface:**
 ```typescript
 interface EventBusService {
   // Publishing
   publishEvent(channel: string, event: Event): Promise<void>;
-  publishEventBatch(events: ChannelEvent[]): Promise<void>;
 
   // Subscription Management
   subscribe(channel: string, handler: EventHandler): Promise<Subscription>;
-  unsubscribe(subscriptionId: string): Promise<void>;
 
   // WebSocket Management
   registerClient(socketId: string, clientInfo: ClientInfo): void;
-  unregisterClient(socketId: string): void;
-  joinRoom(socketId: string, room: string): void;
-  leaveRoom(socketId: string, room: string): void;
-
-  // Room Operations
   broadcastToRoom(room: string, event: Event): Promise<void>;
-  getRoomMembers(room: string): string[];
-  getRoomCount(room: string): number;
-
-  // Event Filtering
-  addFilter(filterId: string, filter: EventFilter): void;
-  removeFilter(filterId: string): void;
 
   // Monitoring
   getEventMetrics(timeRange?: TimeRange): Promise<EventMetrics>;
-  getConnectionMetrics(): Promise<ConnectionMetrics>;
 }
-
-interface Event {
-  id: string;
-  type: string;
-  data: any;
-  metadata: EventMetadata;
-  timestamp: string;
-}
-
-interface EventMetadata {
-  source: string;
-  traceId?: string;
-  clientId?: string;
-  sessionId?: string;
-  version: string;
-}
-
-interface EventFilter {
-  type: 'include' | 'exclude';
-  conditions: FilterCondition[];
-  action: FilterAction;
-}
-
-interface FilterCondition {
-  field: string;           // e.g., 'type', 'metadata.clientId'
-  operator: 'eq' | 'ne' | 'in' | 'contains' | 'regex';
-  value: any;
-}
-
-interface FilterAction {
-  type: 'drop' | 'transform' | 'route';
-  params?: any;
-}
-```
-
-#### 2.3.2 Event Bus Implementation
-
-```typescript
-class EventBusServiceImpl implements EventBusService {
-  private io: Server;
-  private redisPublisher: Redis;
-  private redisSubscriber: Redis;
-  private roomManager: RoomManager;
-  private subscriptions: Map<string, Subscription> = new Map();
-  private filters: Map<string, EventFilter> = new Map();
-  private metrics: MetricsCollector;
-  private logger: Logger;
-
-  constructor(private config: EventBusConfig) {
-    // Initialize Socket.IO server
-    this.io = new Server(config.websocket.port, {
-      cors: { origin: config.websocket.corsOrigins },
-      transports: ['websocket', 'polling'],
-      pingTimeout: 60000,
-      pingInterval: 25000
-    });
-
-    // Initialize Redis clients
-    this.redisPublisher = new Redis(config.redis);
-    this.redisSubscriber = new Redis(config.redis);
-
-    this.roomManager = new RoomManager(this.io);
-    this.metrics = new MetricsCollector();
-    this.logger = new Logger('EventBusService');
-
-    this.setupRedisSubscriptions();
-    this.setupWebSocketHandlers();
-  }
-
-  async publishEvent(channel: string, event: Event): Promise<void> {
-    const startTime = Date.now();
-
-    try {
-      // Apply outbound filters
-      const filteredEvent = this.applyFilters(event, 'outbound');
-      if (!filteredEvent) {
-        this.logger.debug(`Event filtered out`, { eventId: event.id, channel });
-        return;
-      }
-
-      // Publish to Redis
-      await this.redisPublisher.publish(channel, JSON.stringify(filteredEvent));
-
-      // Update metrics
-      this.metrics.incrementCounter('events_published_total', {
-        channel,
-        event_type: event.type
-      });
-
-      this.metrics.recordHistogram('event_publish_duration_ms', Date.now() - startTime);
-
-      this.logger.debug(`Event published`, {
-        eventId: event.id,
-        channel,
-        type: event.type,
-        duration: Date.now() - startTime
-      });
-
-    } catch (error) {
-      this.metrics.incrementCounter('event_publish_errors_total', {
-        channel,
-        error_type: error.constructor.name
-      });
-
-      this.logger.error(`Failed to publish event`, {
-        eventId: event.id,
-        channel,
-        error: error.message
-      });
-
-      throw error;
-    }
-  }
-
-  async subscribe(channel: string, handler: EventHandler): Promise<Subscription> {
-    const subscriptionId = this.generateSubscriptionId();
-    const subscription: Subscription = {
-      id: subscriptionId,
-      channel,
-      handler,
-      createdAt: new Date()
-    };
-
-    // Subscribe to Redis channel if not already subscribed
-    if (!this.subscriptions.has(channel)) {
-      await this.redisSubscriber.subscribe(channel);
-      this.logger.info(`Subscribed to Redis channel`, { channel });
-    }
-
-    this.subscriptions.set(subscriptionId, subscription);
-
-    this.metrics.incrementCounter('subscriptions_created_total', { channel });
-
-    return subscription;
-  }
-
-  private setupRedisSubscriptions(): void {
-    this.redisSubscriber.on('message', async (channel, message) => {
-      try {
-        const event: Event = JSON.parse(message);
-
-        // Apply inbound filters
-        const filteredEvent = this.applyFilters(event, 'inbound');
-        if (!filteredEvent) {
-          return;
-        }
-
-        // Route to WebSocket clients
-        await this.routeEventToWebSocket(channel, filteredEvent);
-
-        // Route to subscriptions
-        await this.routeEventToSubscriptions(channel, filteredEvent);
-
-        // Update metrics
-        this.metrics.incrementCounter('events_received_total', {
-          channel,
-          event_type: filteredEvent.type
-        });
-
-      } catch (error) {
-        this.metrics.incrementCounter('event_processing_errors_total', {
-          channel,
-          error_type: error.constructor.name
-        });
-
-        this.logger.error(`Failed to process event`, {
-          channel,
-          error: error.message,
-          message: message.substring(0, 100)
-        });
-      }
-    });
-  }
-
-  private async routeEventToWebSocket(channel: string, event: Event): Promise<void> {
-    const routingRules = this.getRoutingRules(channel, event);
-
-    for (const rule of routingRules) {
-      switch (rule.type) {
-        case 'room':
-          this.io.to(rule.target).emit(rule.eventName || 'event', event);
-          break;
-        case 'client':
-          this.io.to(`client:${rule.target}`).emit(rule.eventName || 'event', event);
-          break;
-        case 'broadcast':
-          this.io.emit(rule.eventName || 'event', event);
-          break;
-      }
-    }
-  }
-
-  private async routeEventToSubscriptions(channel: string, event: Event): Promise<void> {
-    const channelSubscriptions = Array.from(this.subscriptions.values())
-      .filter(sub => sub.channel === channel);
-
-    for (const subscription of channelSubscriptions) {
-      try {
-        await subscription.handler(event);
-      } catch (error) {
-        this.logger.error(`Subscription handler failed`, {
-          subscriptionId: subscription.id,
-          error: error.message
-        });
-      }
-    }
-  }
-
-  private getRoutingRules(channel: string, event: Event): RoutingRule[] {
-    const rules: RoutingRule[] = [];
-
-    switch (channel) {
-      case 'photo:upload':
-        if (event.metadata.clientId) {
-          rules.push({
-            type: 'client',
-            target: event.metadata.clientId,
-            eventName: 'upload.event'
-          });
-        }
-        if (event.metadata.sessionId) {
-          rules.push({
-            type: 'room',
-            target: `session:${event.metadata.sessionId}`,
-            eventName: 'upload.event'
-          });
-        }
-        break;
-
-      case 'photo:processing':
-        if (event.data.photoId) {
-          rules.push({
-            type: 'room',
-            target: `photo:${event.data.photoId}`,
-            eventName: 'processing.event'
-          });
-        }
-        break;
-
-      case 'photo:completion':
-        if (event.data.photoId) {
-          rules.push({
-            type: 'room',
-            target: `photo:${event.data.photoId}`,
-            eventName: 'completion.event'
-          });
-        }
-        if (event.metadata.clientId) {
-          rules.push({
-            type: 'client',
-            target: event.metadata.clientId,
-            eventName: 'completion.event'
-          });
-        }
-        break;
-    }
-
-    return rules;
-  }
-
-  private setupWebSocketHandlers(): void {
-    this.io.on('connection', (socket) => {
-      this.logger.info(`WebSocket client connected`, { socketId: socket.id });
-
-      socket.on('identify', (clientInfo: ClientInfo) => {
-        this.registerClient(socket.id, clientInfo);
-
-        // Join client-specific room
-        socket.join(`client:${clientInfo.clientId}`);
-
-        // Join session-specific room if provided
-        if (clientInfo.sessionId) {
-          socket.join(`session:${clientInfo.sessionId}`);
-        }
-
-        socket.emit('identified', {
-          socketId: socket.id,
-          timestamp: new Date().toISOString()
-        });
-
-        this.logger.info(`Client identified`, {
-          socketId: socket.id,
-          clientId: clientInfo.clientId,
-          sessionId: clientInfo.sessionId
-        });
-      });
-
-      socket.on('subscribe:photo', ({ photoId }) => {
-        socket.join(`photo:${photoId}`);
-        socket.emit('subscribed', { room: `photo:${photoId}` });
-      });
-
-      socket.on('unsubscribe:photo', ({ photoId }) => {
-        socket.leave(`photo:${photoId}`);
-        socket.emit('unsubscribed', { room: `photo:${photoId}` });
-      });
-
-      socket.on('disconnect', () => {
-        this.unregisterClient(socket.id);
-        this.logger.info(`WebSocket client disconnected`, { socketId: socket.id });
-      });
-    });
-  }
-
-  registerClient(socketId: string, clientInfo: ClientInfo): void {
-    this.roomManager.registerClient(socketId, clientInfo);
-
-    this.metrics.incrementCounter('websocket_connections_total');
-    this.metrics.setGauge('websocket_active_connections', this.io.engine.clientsCount);
-  }
-
-  unregisterClient(socketId: string): void {
-    this.roomManager.unregisterClient(socketId);
-
-    this.metrics.decrementGauge('websocket_active_connections');
-  }
-
-  private applyFilters(event: Event, direction: 'inbound' | 'outbound'): Event | null {
-    for (const filter of this.filters.values()) {
-      if (!this.matchesFilterConditions(event, filter.conditions)) {
-        continue;
-      }
-
-      switch (filter.action.type) {
-        case 'drop':
-          return null;
-
-        case 'transform':
-          return this.transformEvent(event, filter.action.params);
-
-        case 'route':
-          // Custom routing logic
-          break;
-      }
-    }
-
-    return event;
-  }
-
-  private matchesFilterConditions(event: Event, conditions: FilterCondition[]): boolean {
-    return conditions.every(condition => {
-      const fieldValue = this.getEventFieldValue(event, condition.field);
-
-      switch (condition.operator) {
-        case 'eq':
-          return fieldValue === condition.value;
-        case 'ne':
-          return fieldValue !== condition.value;
-        case 'in':
-          return Array.isArray(condition.value) && condition.value.includes(fieldValue);
-        case 'contains':
-          return typeof fieldValue === 'string' && fieldValue.includes(condition.value);
-        case 'regex':
-          return typeof fieldValue === 'string' && new RegExp(condition.value).test(fieldValue);
-        default:
-          return false;
-      }
-    });
-  }
-
-  private getEventFieldValue(event: Event, fieldPath: string): any {
-    return fieldPath.split('.').reduce((obj, key) => obj?.[key], event);
-  }
-
-  private transformEvent(event: Event, transformParams: any): Event {
-    // Implementation of event transformation logic
-    return { ...event, ...transformParams };
-  }
-
-  private generateSubscriptionId(): string {
-    return `sub_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-  }
-}
-
-interface RoutingRule {
-  type: 'room' | 'client' | 'broadcast';
-  target: string;
-  eventName?: string;
-}
-
-interface ClientInfo {
-  clientId: string;
-  sessionId?: string;
-  userAgent?: string;
-  ipAddress?: string;
-}
-
-interface Subscription {
-  id: string;
-  channel: string;
-  handler: EventHandler;
-  createdAt: Date;
-}
-
-type EventHandler = (event: Event) => Promise<void> | void;
 ```
 
 ---
@@ -629,7 +228,6 @@ interface PipelineConfig {
   compressionQuality?: number;
   outputFormat?: string;
   preserveExif?: boolean;
-  watermark?: WatermarkConfig;
 }
 
 interface ThumbnailSize {
@@ -639,13 +237,6 @@ interface ThumbnailSize {
   crop?: boolean;
 }
 
-interface WatermarkConfig {
-  enabled: boolean;
-  text?: string;
-  image?: string;
-  position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center';
-  opacity: number;
-}
 ```
 
 ### 3.2 Storage Schema Definitions
