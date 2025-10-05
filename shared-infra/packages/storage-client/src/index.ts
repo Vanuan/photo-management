@@ -68,9 +68,22 @@ export const utils = {
   },
   formatBytes: (bytes: number): string => {
     if (bytes === 0) return '0 Bytes';
+    if (!isFinite(bytes)) {
+      return `${bytes} Bytes`;
+    }
+
     const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    const absBytes = Math.abs(bytes);
+
+    // Handle fractional bytes (less than 1)
+    if (absBytes < 1) {
+      return parseFloat(bytes.toFixed(2)) + ' Bytes';
+    }
+
+    const i = Math.min(Math.floor(Math.log(absBytes) / Math.log(k)), sizes.length - 1);
+    const value = bytes / Math.pow(k, i);
+
+    return parseFloat(value.toFixed(2)) + ' ' + sizes[i];
   },
 };

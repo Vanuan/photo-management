@@ -9,6 +9,7 @@ import {
   PaginationOptions,
   PhotoPage,
   PhotoMetadata,
+  StorageError,
   ValidationError,
   PhotoNotFoundError,
   StorageConnectionError,
@@ -148,17 +149,25 @@ export class StorageClient {
   }
 
   async getPhoto(photoId: string): Promise<Photo | null> {
-    if (!photoId) {
+    if (!photoId || photoId.trim() === '') {
       throw new ValidationError('Photo ID is required');
     }
 
     try {
       // Check cache first
       if (this.cache.isEnabled()) {
-        const cached = (await this.cache.get(`photo:${photoId}`)) as Photo | null;
-        if (cached) {
-          this.logger.info('Photo retrieved from cache', { photoId });
-          return cached;
+        try {
+          const cached = (await this.cache.get(`photo:${photoId}`)) as Photo | null;
+          if (cached) {
+            this.logger.info('Photo retrieved from cache', { photoId });
+            return cached;
+          }
+        } catch (cacheError) {
+          this.logger.warn('Cache operation failed during get', {
+            photoId,
+            error: (cacheError as Error).message,
+          });
+          // Continue with normal flow if cache fails
         }
       }
 
@@ -170,10 +179,18 @@ export class StorageClient {
 
       // Cache the result
       if (this.cache.isEnabled()) {
-        await this.cache.set(`photo:${photoId}`, photo, this.cache.getTTL());
+        try {
+          await this.cache.set(`photo:${photoId}`, photo, this.cache.getTTL());
+        } catch (cacheError) {
+          this.logger.warn('Cache operation failed during set', {
+            photoId,
+            error: (cacheError as Error).message,
+          });
+          // Continue even if caching fails
+        }
       }
 
-      this.logger.info('Photo retrieved from service', { photoId });
+      this.logger.info('Photo retrieved successfully', { photoId });
       return photo;
     } catch (error) {
       if (this.isNotFoundError(error)) {
@@ -189,8 +206,12 @@ export class StorageClient {
   }
 
   async getPhotoUrl(photoId: string, expiry: number = 3600): Promise<string> {
-    if (!photoId) {
+    if (!photoId || photoId.trim() === '') {
       throw new ValidationError('Photo ID is required');
+    }
+
+    if (expiry <= 0) {
+      throw new ValidationError('Expiry must be greater than 0');
     }
 
     if (expiry > 86400) {
@@ -201,10 +222,18 @@ export class StorageClient {
       // First try to get from cache if URL is still valid
       const cacheKey = `url:${photoId}:${expiry}`;
       if (this.cache.isEnabled()) {
-        const cachedUrl = await this.cache.get(cacheKey);
-        if (cachedUrl && !this.isUrlExpired(cachedUrl as string)) {
-          this.logger.info('Photo URL retrieved from cache', { photoId });
-          return cachedUrl as string;
+        try {
+          const cachedUrl = await this.cache.get(cacheKey);
+          if (cachedUrl && !this.isUrlExpired(cachedUrl as string)) {
+            this.logger.info('Photo URL retrieved from cache', { photoId });
+            return cachedUrl as string;
+          }
+        } catch (cacheError) {
+          this.logger.warn('Cache operation failed during URL get', {
+            photoId,
+            error: (cacheError as Error).message,
+          });
+          // Continue with normal flow if cache fails
         }
       }
 
@@ -214,14 +243,30 @@ export class StorageClient {
         throw new PhotoNotFoundError(`Photo not found: ${photoId}`);
       }
 
+      // Validate required photo metadata
+      if (!photo.bucket || photo.bucket.trim() === '') {
+        throw new StorageError('Photo metadata missing bucket information');
+      }
+      if (!photo.s3_key || photo.s3_key.trim() === '') {
+        throw new StorageError('Photo metadata missing s3_key information');
+      }
+
       // Generate presigned URL directly from MinIO for better performance
       const url = await this.minioClient.presignedUrl('GET', photo.bucket, photo.s3_key, expiry);
 
       // Cache the URL with appropriate TTL
       if (this.cache.isEnabled()) {
-        const urlTtl = Math.min(expiry - 60, this.cache.getTTL()); // Cache for slightly less than expiry
-        if (urlTtl > 0) {
-          await this.cache.set(cacheKey, url, urlTtl);
+        try {
+          const urlTtl = Math.min(expiry - 60, this.cache.getTTL()); // Cache for slightly less than expiry
+          if (urlTtl > 0) {
+            await this.cache.set(cacheKey, url, urlTtl);
+          }
+        } catch (cacheError) {
+          this.logger.warn('Cache operation failed during URL set', {
+            photoId,
+            error: (cacheError as Error).message,
+          });
+          // Continue even if caching fails
         }
       }
 
@@ -300,7 +345,7 @@ export class StorageClient {
   }
 
   async updatePhotoMetadata(photoId: string, metadata: Partial<PhotoMetadata>): Promise<void> {
-    if (!photoId) {
+    if (!photoId || photoId.trim() === '') {
       throw new ValidationError('Photo ID is required');
     }
 
@@ -310,23 +355,31 @@ export class StorageClient {
 
     try {
       await this.retryRequest(async () => {
-        return await this.httpClient.put(`/api/v1/photos/${photoId}/metadata`, metadata);
+        return await this.httpClient.patch(`/api/v1/photos/${photoId}/metadata`, { metadata });
       });
 
       // Invalidate cache
       if (this.cache.isEnabled()) {
-        await this.cache.delete(`photo:${photoId}`);
-        // Also invalidate URL cache entries for this photo
-        await this.cache.deletePattern(`url:${photoId}:*`);
+        try {
+          await this.cache.delete(`photo:${photoId}`);
+          await this.cache.deletePattern(`url:${photoId}:*`);
+        } catch (cacheError) {
+          this.logger.warn('Failed to clear cache during metadata update', {
+            photoId,
+            error: (cacheError as Error).message,
+          });
+          // Continue even if cache clear fails
+        }
       }
 
       this.logger.info('Photo metadata updated', {
         photoId,
-        updatedFields: Object.keys(metadata),
+        metadata: metadata,
       });
     } catch (error) {
       this.logger.error('Failed to update photo metadata', {
         photoId,
+        metadata,
         error: (error as Error).message,
       });
       throw this.handleError(error, 'Failed to update photo metadata');
@@ -334,7 +387,7 @@ export class StorageClient {
   }
 
   async deletePhoto(photoId: string): Promise<void> {
-    if (!photoId) {
+    if (!photoId || photoId.trim() === '') {
       throw new ValidationError('Photo ID is required');
     }
 
@@ -345,8 +398,16 @@ export class StorageClient {
 
       // Invalidate cache
       if (this.cache.isEnabled()) {
-        await this.cache.delete(`photo:${photoId}`);
-        await this.cache.deletePattern(`url:${photoId}:*`);
+        try {
+          await this.cache.delete(`photo:${photoId}`);
+          await this.cache.deletePattern(`url:${photoId}:*`);
+        } catch (cacheError) {
+          this.logger.warn('Failed to clear cache during photo deletion', {
+            photoId,
+            error: (cacheError as Error).message,
+          });
+          // Continue even if cache clear fails
+        }
       }
 
       this.logger.info('Photo deleted', { photoId });
@@ -359,33 +420,57 @@ export class StorageClient {
     }
   }
 
-  async healthCheck(): Promise<boolean> {
+  async healthCheck(): Promise<any> {
     try {
-      const response = await this.httpClient.get('/health', { timeout: 5000 });
-      return response.status === 200 && response.data.success;
+      const response = await this.httpClient.get('/api/v1/health', { timeout: 5000 });
+
+      // Validate response structure
+      if (!response.data || typeof response.data !== 'object') {
+        throw new Error('Invalid health check response structure');
+      }
+
+      if (!response.data.success) {
+        throw new Error('Health check reported failure');
+      }
+
+      if (!response.data.data) {
+        throw new Error('Health check missing data');
+      }
+
+      return response.data.data;
     } catch (error) {
       this.logger.error('Health check failed', { error: (error as Error).message });
-      return false;
+      throw this.handleError(error, 'Health check failed');
     }
   }
 
   async clearCache(): Promise<void> {
     if (this.cache.isEnabled()) {
-      await this.cache.clear();
-      this.logger.info('Cache cleared');
+      try {
+        await this.cache.clear();
+        this.logger.info('Cache cleared');
+      } catch (cacheError) {
+        this.logger.warn('Failed to clear cache', {
+          error: (cacheError as Error).message,
+        });
+        throw cacheError; // Re-throw for clearCache since it's the main operation
+      }
     }
   }
 
-  getCacheStats(): { enabled: boolean; size?: number; hitRate?: number } {
+  getCacheStats(): any {
     if (!this.cache.isEnabled()) {
-      return { enabled: false };
+      return null;
     }
 
-    return {
-      enabled: true,
-      size: this.cache.getSize(),
-      hitRate: this.cache.getHitRate(),
-    };
+    try {
+      return this.cache.getStats();
+    } catch (error) {
+      this.logger.error('Failed to get cache stats', {
+        error: (error as Error).message,
+      });
+      throw error;
+    }
   }
 
   // === PRIVATE METHODS ===
@@ -395,18 +480,59 @@ export class StorageClient {
       throw new ValidationError('storageServiceUrl is required');
     }
 
+    // Validate URL format
+    try {
+      new URL(config.storageServiceUrl);
+    } catch (error) {
+      throw new ValidationError('storageServiceUrl must be a valid URL');
+    }
+
+    // Validate timeout
+    if (config.timeout !== undefined && config.timeout < 0) {
+      throw new ValidationError('timeout must be >= 0');
+    }
+
+    // Validate retry config
+    if (config.retryConfig) {
+      if (config.retryConfig.maxRetries < 0) {
+        throw new ValidationError('retryConfig.maxRetries must be >= 0');
+      }
+      if (config.retryConfig.retryDelay <= 0) {
+        throw new ValidationError('retryConfig.retryDelay must be > 0');
+      }
+      if (config.retryConfig.backoffFactor <= 0) {
+        throw new ValidationError('retryConfig.backoffFactor must be > 0');
+      }
+    }
+
     if (!config.minioConfig) {
       throw new ValidationError('minioConfig is required');
     }
 
     const requiredMinioFields = ['endPoint', 'port', 'useSSL', 'accessKey', 'secretKey'];
     for (const field of requiredMinioFields) {
+      const value = config.minioConfig[field as keyof typeof config.minioConfig];
       if (
         !(field in config.minioConfig) ||
-        config.minioConfig[field as keyof typeof config.minioConfig] === undefined
+        value === undefined ||
+        value === null ||
+        (typeof value === 'string' && value.trim() === '')
       ) {
         throw new ValidationError(`minioConfig.${field} is required`);
       }
+    }
+
+    // Validate MinIO port
+    if (config.minioConfig.port <= 0 || config.minioConfig.port > 65535) {
+      throw new ValidationError('minioConfig.port must be between 1 and 65535');
+    }
+
+    // Validate MinIO endPoint is not empty
+    if (
+      typeof config.minioConfig.endPoint === 'string' &&
+      config.minioConfig.endPoint.trim() === ''
+    ) {
+      throw new ValidationError('minioConfig.endPoint cannot be empty');
     }
   }
 
@@ -428,8 +554,8 @@ export class StorageClient {
       throw new ValidationError('clientId is required');
     }
 
-    // Validate filename
-    if (!/^[\w\-. ]+$/.test(options.originalName)) {
+    // Validate filename - allow most characters except path separators and control characters
+    if (/[\/\\<>:"|?*\x00-\x1f]/.test(options.originalName)) {
       throw new ValidationError('Invalid characters in filename');
     }
   }
@@ -512,16 +638,45 @@ export class StorageClient {
   }
 
   private shouldNotRetry(error: any): boolean {
-    // Don't retry on client errors (4xx) except 408, 429
-    if (error.response?.status >= 400 && error.response?.status < 500) {
-      return ![408, 429].includes(error.response.status);
+    return !this.isRetryableError(error);
+  }
+
+  private isRetryableError(error: any): boolean {
+    if (!error) {
+      return false;
+    }
+
+    // Network errors are retryable
+    if (
+      (error as any).code === 'ECONNREFUSED' ||
+      (error as any).code === 'ENOTFOUND' ||
+      (error as any).code === 'ETIMEDOUT' ||
+      (error as any).code === 'ECONNRESET' ||
+      (error as any).code === 'EPIPE'
+    ) {
+      return true;
+    }
+
+    // HTTP status codes that are retryable
+    if (error.response?.status) {
+      const status = error.response.status;
+      // Retry on some 5xx errors and specific client errors (408, 429)
+      return (
+        status === 408 ||
+        status === 429 ||
+        status === 500 ||
+        status === 502 ||
+        status === 503 ||
+        status === 504
+      );
     }
 
     // Don't retry on validation errors
     if (error instanceof ValidationError) {
-      return true;
+      return false;
     }
 
+    // Default to not retryable
     return false;
   }
 
@@ -537,7 +692,7 @@ export class StorageClient {
         case 'StorageConnectionError':
           return new StorageConnectionError(apiError.message);
         default:
-          return new Error(apiError.message || defaultMessage);
+          return new StorageError(apiError.message || defaultMessage);
       }
     }
 
@@ -545,11 +700,45 @@ export class StorageClient {
       return new StorageConnectionError('Unable to connect to storage service');
     }
 
+    // Handle HTTP status codes when no API error structure is present
+    if (error.response?.status && !error.response?.data?.error) {
+      const status = error.response.status;
+      const message = error.response.statusText || defaultMessage;
+
+      switch (status) {
+        case 400:
+        case 422:
+          return new ValidationError(message);
+        case 404:
+          return new PhotoNotFoundError(message);
+        case 401:
+        case 403:
+        case 409:
+        case 429:
+        case 500:
+        case 502:
+        case 503:
+        case 504:
+          return new StorageError(message);
+        default:
+          return new StorageError(message);
+      }
+    }
+
     if ((error as any).code === 'ETIMEDOUT') {
       return new StorageConnectionError('Storage service request timed out');
     }
 
-    return new Error((error as Error).message || defaultMessage);
+    // For network errors and other generic errors, prioritize the default message
+    if (
+      error.message === 'Network error' ||
+      error.message === 'Network Error' ||
+      error.message === 'MinIO connection failed'
+    ) {
+      return new StorageError(defaultMessage);
+    }
+
+    return new StorageError(defaultMessage);
   }
 
   private isNotFoundError(error: any): boolean {

@@ -54,7 +54,21 @@ export class PhotoRoutes {
       let buffer: Buffer;
       try {
         buffer = Buffer.from(data, 'base64');
+
+        // Additional validation - check if the data looks like valid base64
+        const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+        if (!base64Regex.test(data)) {
+          throw new ValidationError('Invalid base64 data format');
+        }
+
+        // Check for empty buffer which might indicate invalid base64
+        if (buffer.length === 0 && data.length > 0) {
+          throw new ValidationError('Invalid base64 data - empty result');
+        }
       } catch (error) {
+        if (error instanceof ValidationError) {
+          throw error;
+        }
         throw new ValidationError('Invalid base64 data');
       }
 
