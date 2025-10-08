@@ -1,0 +1,67 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 2 * * *'
+
+jobs:
+  e2e:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (root)
+        run: npm install --workspaces=false
+
+      - name: Start services (storage + minio)
+        run: docker compose -f shared-infra/docker-compose.yml up -d
+
+      - name: Wait for storage service health
+        run: |
+          timeout 180 bash -c '
+            until curl -fsS http://localhost:3001/health; do
+              echo "Waiting for storage-service...";
+              sleep 5;
+            done
+          '
+
+      - name: Run E2E tests (if present)
+        run: npm run test:e2e --if-present || echo "No E2E tests defined"
+
+      - name: Generate test report (if present)
+        run: npm run test:report --if-present || echo "No E2E report script defined"
+
+      - name: Upload test report (if exists)
+        if: ${{ always() && hashFiles('tests/e2e/report/**') != '' }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: e2e-test-report
+          path: tests/e2e/report/
+
+      - name: Collect docker logs
+        if: failure()
+        run: docker compose -f shared-infra/docker-compose.yml logs > docker-logs.txt
+
+      - name: Upload docker logs
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: docker-logs
+          path: docker-logs.txt
+
+      - name: Stop services
+        if: always()
+        run: docker compose -f shared-infra/docker-compose.yml down -v

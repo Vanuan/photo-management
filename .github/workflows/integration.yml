@@ -1,0 +1,84 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (shared-infra)
+        working-directory: shared-infra
+        run: npm install
+
+      - name: Start MinIO
+        run: |
+          docker run -d \
+            --name minio \
+            -p 9000:9000 \
+            -e "MINIO_ROOT_USER=minioadmin" \
+            -e "MINIO_ROOT_PASSWORD=minioadmin" \
+            minio/minio server /data
+
+      - name: Wait for services
+        run: |
+          timeout 60 bash -c 'until curl -f http://localhost:9000/minio/health/live; do sleep 2; done'
+
+      - name: Build shared-infra packages
+        working-directory: shared-infra
+        run: npm run build --workspaces --if-present
+
+      - name: Run integration tests
+        working-directory: shared-infra
+        run: npm run test:integration
+        env:
+          REDIS_HOST: localhost
+          MINIO_ENDPOINT: localhost
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+
+      - name: Upload coverage (if exists)
+        if: ${{ always() && hashFiles('shared-infra/coverage/**') != '' }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: integration-coverage
+          path: shared-infra/coverage/
+
+      - name: Collect service logs
+        if: failure()
+        run: docker logs minio > minio-logs.txt
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: service-logs
+          path: '*.txt'
+
+      - name: Cleanup MinIO
+        if: always()
+        run: docker rm -f minio || true
