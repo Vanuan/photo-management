@@ -30,9 +30,9 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies (shared-infra)
+      - name: Install dependencies (shared-infra with workspaces)
         working-directory: shared-infra
-        run: npm install
+        run: npm install --workspaces --include-workspace-root
 
       - name: Start MinIO
         run: |
