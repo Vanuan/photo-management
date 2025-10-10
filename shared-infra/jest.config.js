@@ -37,8 +37,13 @@ module.exports = {
       functions: 75,
       lines: 75,
       statements: 75
+    },
+    './packages/storage-service/': {
+      branches: 70,
+      functions: 70,
+      lines: 70,
+      statements: 70
     }
-    // storage-service is tested via integration tests only
   },
 
   // Test execution settings
