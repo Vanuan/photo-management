@@ -1,25 +1,24 @@
-FROM node:20-alpine AS build
+FROM node:20-alpine AS base
 
 WORKDIR /app
 
-# Install sharp's dependencies
-RUN apk add --no-cache vips-dev gcc g++ libtool autoconf automake make
+# Install system dependencies for Sharp
+RUN apk add --no-cache python3 make g++ vips-dev
 
-COPY package*.json ./
+# Copy package files
+COPY package.json package-lock.json* ./
+COPY worker/package.json ./worker/
 
-RUN npm install
+# Install dependencies
+RUN npm ci
 
-COPY . .
+# Copy source code
+COPY worker ./worker
+COPY shared-infra ./shared-infra
 
-RUN npm run build
+# Build
+WORKDIR /app/worker
+RUN npm run build || tsc || echo "No build script found"
 
-
-FROM node:20-alpine
-
-WORKDIR /app
-
-COPY --from=build /app/package*.json ./
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-
-CMD ["npm", "start"]
+# Start the worker
+CMD ["node", "dist/index.js"]

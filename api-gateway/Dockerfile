@@ -1,8 +1,7 @@
 FROM node:20-alpine AS build
 
-WORKDIR /app
-
-COPY package*.json ./
+# Copy package files
+COPY package.json package-lock.json* ./
 
 RUN npm install
 
