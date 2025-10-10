@@ -56,20 +56,35 @@ class UploadManager {
     window.addEventListener("offline", this.handleNetworkChange);
 
     webSocketClient.connect();
-    webSocketClient.on("photo.uploaded", (data) =>
-      this.handleWebSocketEvent("photo.uploaded", data),
+    webSocketClient.on("photo.uploaded", (data: unknown) =>
+      this.handleWebSocketEvent(
+        "photo.uploaded",
+        data as Record<string, unknown>,
+      ),
     );
-    webSocketClient.on("photo.processing.started", (data) =>
-      this.handleWebSocketEvent("photo.processing.started", data),
+    webSocketClient.on("photo.processing.started", (data: unknown) =>
+      this.handleWebSocketEvent(
+        "photo.processing.started",
+        data as Record<string, unknown>,
+      ),
     );
-    webSocketClient.on("photo.processing.stage.completed", (data) =>
-      this.handleWebSocketEvent("photo.processing.stage.completed", data),
+    webSocketClient.on("photo.processing.stage.completed", (data: unknown) =>
+      this.handleWebSocketEvent(
+        "photo.processing.stage.completed",
+        data as Record<string, unknown>,
+      ),
     );
-    webSocketClient.on("photo.processing.completed", (data) =>
-      this.handleWebSocketEvent("photo.processing.completed", data),
+    webSocketClient.on("photo.processing.completed", (data: unknown) =>
+      this.handleWebSocketEvent(
+        "photo.processing.completed",
+        data as Record<string, unknown>,
+      ),
     );
-    webSocketClient.on("photo.processing.failed", (data) =>
-      this.handleWebSocketEvent("photo.processing.failed", data),
+    webSocketClient.on("photo.processing.failed", (data: unknown) =>
+      this.handleWebSocketEvent(
+        "photo.processing.failed",
+        data as Record<string, unknown>,
+      ),
     );
   }
 
@@ -81,10 +96,11 @@ class UploadManager {
   }
 
   private getUserId(): string {
-    let userId = localStorage.getItem(LS_USER_ID_KEY);
+    const userId = localStorage.getItem(LS_USER_ID_KEY);
     if (!userId) {
-      userId = uuidv4();
-      localStorage.setItem(LS_USER_ID_KEY, userId);
+      const newUserId = uuidv4();
+      localStorage.setItem(LS_USER_ID_KEY, newUserId);
+      return newUserId;
     }
     return userId;
   }
@@ -95,7 +111,7 @@ class UploadManager {
       if (storedQueue) {
         this.queue = JSON.parse(storedQueue);
       }
-    } catch (error) {
+    } catch {
       this.queue = [];
     }
   }
@@ -250,18 +266,20 @@ class UploadManager {
       } else {
         throw new Error("API response did not contain photoId.");
       }
-    } catch (error: any) {
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       const newRetries = item.retries + 1;
       if (newRetries < RETRY_MAX_ATTEMPTS) {
         this.updateItem(item.id, {
           status: "error",
           retries: newRetries,
-          error: error.message,
+          error: errorMessage,
         });
       } else {
         this.updateItem(item.id, {
           status: "failed",
-          error: `Max retries reached: ${error.message}`,
+          error: `Max retries reached: ${errorMessage}`,
         });
       }
     } finally {
@@ -273,7 +291,7 @@ class UploadManager {
     item: UploadTask,
     blob: Blob,
     onProgress: (percent: number) => void,
-  ): Promise<any> {
+  ): Promise<{ photoId: string } | null> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", this.apiUrl, true);
@@ -305,8 +323,11 @@ class UploadManager {
     });
   }
 
-  private handleWebSocketEvent(eventName: string, data: any): void {
-    const { photoId, progress, error } = data;
+  private handleWebSocketEvent(
+    eventName: string,
+    data: Record<string, unknown>,
+  ): void {
+    const { photoId, progress } = data;
     if (!photoId) return;
 
     const task = this.queue.find((t) => t.backendPhotoId === photoId);
@@ -318,7 +339,10 @@ class UploadManager {
         updates = { status: "processing", progress: 0 };
         break;
       case "photo.processing.stage.completed":
-        updates = { status: "processing", progress: progress ?? task.progress };
+        updates = {
+          status: "processing",
+          progress: typeof progress === "number" ? progress : task.progress,
+        };
         break;
       case "photo.processing.completed":
         updates = { status: "completed", progress: 100 };
@@ -327,7 +351,7 @@ class UploadManager {
       case "photo.processing.failed":
         updates = {
           status: "failed",
-          error: `Processing failed: ${error || "Unknown reason"}`,
+          error: `Processing failed: ${data.error || "Unknown reason"}`,
         };
         break;
     }
@@ -341,7 +365,9 @@ class UploadManager {
     return this.queue.reduce(
       (stats, task) => {
         stats.total++;
-        stats[task.status] = (stats[task.status] || 0) + 1;
+        // Type assertion to tell TypeScript that task.status is a valid key
+        const status = task.status as keyof typeof stats;
+        stats[status] = (stats[status] || 0) + 1;
         return stats;
       },
       {

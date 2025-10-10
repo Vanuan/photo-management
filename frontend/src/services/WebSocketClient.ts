@@ -1,7 +1,7 @@
 import { io, Socket } from "socket.io-client";
 import { v4 as uuidv4 } from "uuid"; // For generating session ID
 
-type EventCallback = (...args: any[]) => void;
+type EventCallback = (...args: unknown[]) => void;
 
 const LS_USER_ID_KEY = "user_id"; // Consistent with UploadManager
 
@@ -25,10 +25,11 @@ class WebSocketClient {
    * @returns The user ID.
    */
   private getUserId(): string {
-    let userId = localStorage.getItem(LS_USER_ID_KEY);
+    const userId = localStorage.getItem(LS_USER_ID_KEY);
     if (!userId) {
-      userId = uuidv4();
-      localStorage.setItem(LS_USER_ID_KEY, userId);
+      const newUserId = uuidv4();
+      localStorage.setItem(LS_USER_ID_KEY, newUserId);
+      return newUserId;
     }
     return userId;
   }
@@ -99,7 +100,7 @@ class WebSocketClient {
     );
 
     // Listen for all incoming events from the server and propagate them
-    this.socket.onAny((eventName: string, ...args: any[]) => {
+    this.socket.onAny((eventName: string, ...args: unknown[]) => {
       this.onSocketEvent(eventName, ...args);
     });
 
@@ -124,7 +125,7 @@ class WebSocketClient {
    * @param eventName The name of the event to emit.
    * @param data The data to send with the event.
    */
-  public emit(eventName: string, data: any): void {
+  public emit(eventName: string, data: unknown): void {
     if (this.socket && this.socket.connected) {
       this.socket.emit(eventName, data);
     } else {
@@ -193,7 +194,7 @@ class WebSocketClient {
    * @param eventName The name of the event received from the server.
    * @param args Arguments received with the event.
    */
-  private onSocketEvent(eventName: string, ...args: any[]): void {
+  private onSocketEvent(eventName: string, ...args: unknown[]): void {
     console.log(`WebSocket event received: ${eventName}`, ...args);
     // Propagate all server events locally
     this.emitLocalEvent(eventName, ...args);
@@ -205,7 +206,7 @@ class WebSocketClient {
    * @param eventName The name of the local event.
    * @param args Arguments to pass to the event handlers.
    */
-  private emitLocalEvent(eventName: string, ...args: any[]): void {
+  private emitLocalEvent(eventName: string, ...args: unknown[]): void {
     const handlers = this.eventHandlers.get(eventName);
     if (handlers) {
       handlers.forEach((handler) => {

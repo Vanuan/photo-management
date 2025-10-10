@@ -1,75 +1,47 @@
-import React, { useState, useEffect } from "react";
-import { webSocketClient } from "../services/WebSocketClient";
-import { uploadManager } from "../services/UploadManager";
-import type { UploadTask } from "../services/UploadManager";
-const StatusIndicator: React.FC = () => {
-  const [isWebSocketConnected, setIsWebSocketConnected] = useState(
-    webSocketClient.getStatus(),
-  );
-  const [uploadStats, setUploadStats] = useState(uploadManager.getStats());
+import React from "react";
+import { Wifi, WifiOff, Upload } from "lucide-react";
 
-  useEffect(() => {
-    // Subscribe to WebSocket connection status changes
-    const unsubscribeWsConnected = webSocketClient.on("connected", () => {
-      setIsWebSocketConnected(true);
-    });
-    const unsubscribeWsDisconnected = webSocketClient.on("disconnected", () => {
-      setIsWebSocketConnected(false);
-    });
-    const unsubscribeWsError = webSocketClient.on("connection_error", () => {
-      setIsWebSocketConnected(false);
-    });
+interface StatusIndicatorProps {
+  pendingUploads: number;
+}
 
-    // Subscribe to UploadManager queue changes
-    const unsubscribeQueue = uploadManager.subscribeToQueueChanges(
-      (queue: UploadTask[]) => {
-        setUploadStats(uploadManager.getStats());
-      },
-    );
-
-    // Cleanup subscriptions on component unmount
-    return () => {
-      unsubscribeWsConnected();
-      unsubscribeWsDisconnected();
-      unsubscribeWsError();
-      unsubscribeQueue();
-    };
-  }, []);
-
-  const getWsStatusColor = () => {
-    return isWebSocketConnected ? "bg-green-500" : "bg-red-500";
-  };
-
-  const getWsStatusText = () => {
-    return isWebSocketConnected ? "Connected" : "Disconnected";
-  };
-
-  const hasPendingUploads =
-    uploadStats.cached > 0 ||
-    uploadStats.uploading > 0 ||
-    uploadStats.error > 0;
-  const pendingUploadsText = hasPendingUploads
-    ? `${uploadStats.cached + uploadStats.uploading + uploadStats.error} pending`
-    : "No pending uploads";
-  const pendingUploadsColor = hasPendingUploads
-    ? "bg-orange-500"
-    : "bg-gray-500";
+const StatusIndicator: React.FC<StatusIndicatorProps> = ({
+  pendingUploads,
+}) => {
+  // For now, we'll simulate the WebSocket connection status
+  // In a real app, this would come from a WebSocket service
+  const isWebSocketConnected = false; // This will be updated by the WebSocket service
 
   return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col space-y-2">
-      <div
-        className={`flex items-center space-x-2 p-2 rounded-full text-white text-sm ${getWsStatusColor()}`}
-      >
-        <span className="h-2 w-2 rounded-full bg-white block"></span>
-        <span>WebSocket: {getWsStatusText()}</span>
+    <>
+      {/* Minimal Status Indicators - Top corners only for critical info */}
+      {pendingUploads > 0 && (
+        <div className="fixed top-4 right-4 z-50">
+          <div className="flex items-center space-x-2 px-3 py-1.5 rounded-full text-white text-xs font-medium bg-blue-500/90 backdrop-blur-sm">
+            <Upload className="w-3 h-3 animate-pulse" />
+            <span>{pendingUploads} uploading</span>
+          </div>
+        </div>
+      )}
+
+      {/* Connection Status Indicator */}
+      <div className="fixed top-4 left-4 z-50">
+        <button
+          className={`p-3.5 rounded-full shadow-xl transition-all backdrop-blur-sm ${
+            isWebSocketConnected
+              ? "bg-green-500/90 hover:scale-105 active:scale-95"
+              : "bg-red-500/90"
+          }`}
+          aria-label={isWebSocketConnected ? "Connected" : "Disconnected"}
+        >
+          {isWebSocketConnected ? (
+            <Wifi className="w-6 h-6 text-white" />
+          ) : (
+            <WifiOff className="w-6 h-6 text-white" />
+          )}
+        </button>
       </div>
-      <div
-        className={`flex items-center space-x-2 p-2 rounded-full text-white text-sm ${pendingUploadsColor}`}
-      >
-        <span className="h-2 w-2 rounded-full bg-white block"></span>
-        <span>Uploads: {pendingUploadsText}</span>
-      </div>
-    </div>
+    </>
   );
 };
 

@@ -1,11 +1,38 @@
 import React, { useRef, useState, useEffect, useCallback } from "react";
-import { v4 as uuidv4 } from "uuid";
 import { opfsStorage } from "../services/OPFSStorage";
 import { uploadManager } from "../services/UploadManager";
+import { CheckCircle } from "lucide-react";
+import CameraControls from "./CameraControls";
 
 type CameraStatus = "idle" | "requesting" | "granted" | "denied" | "error";
 
-const CameraView: React.FC = () => {
+interface UploadItem {
+  id: string;
+  filename: string;
+  status: "uploading" | "uploaded" | "failed" | "cached";
+  error?: string;
+  retries: number;
+  progress: number;
+  timestamp: number;
+}
+
+interface CameraViewProps {
+  wsConnected: boolean;
+  onOpenQueue: () => void;
+  lastThumbnail: string | null;
+  setLastThumbnail: (thumbnail: string) => void;
+  uploadQueue: UploadItem[];
+  simulateUpload: (id: string) => void;
+}
+
+const CameraView: React.FC<CameraViewProps> = ({
+  wsConnected,
+  onOpenQueue,
+  lastThumbnail,
+  setLastThumbnail,
+  uploadQueue,
+  simulateUpload,
+}) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -20,6 +47,7 @@ const CameraView: React.FC = () => {
     string | null
   >(null);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   // Callback ref: ensures we attach the stream to the video as soon as the element mounts.
   const setVideoElement = useCallback((el: HTMLVideoElement | null) => {
@@ -82,23 +110,27 @@ const CameraView: React.FC = () => {
       }
 
       setCameraStatus("granted");
-    } catch (err: any) {
+    } catch (err) {
       console.error("[Camera] getUserMedia error:", err);
       // Ensure any partially-opened tracks are stopped
       try {
         mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
-      } catch {}
+      } catch {
+        // Intentionally empty catch block
+      }
       mediaStreamRef.current = null;
 
       setCameraStatus("denied");
-      if (err?.name === "NotAllowedError") {
+      if ((err as Error)?.name === "NotAllowedError") {
         setErrorMessage(
           "Camera access denied. Please enable camera permissions.",
         );
-      } else if (err?.name === "NotFoundError") {
+      } else if ((err as Error)?.name === "NotFoundError") {
         setErrorMessage("No camera found on this device.");
       } else {
-        setErrorMessage(err?.message || "Unknown error accessing camera.");
+        setErrorMessage(
+          (err as Error)?.message || "Unknown error accessing camera.",
+        );
       }
     }
   }, []);
@@ -111,11 +143,14 @@ const CameraView: React.FC = () => {
           t.stop();
           // disabling is best-effort; some browsers may throw
           // keep in try/catch
-          // eslint-disable-next-line no-empty
-        } catch {}
+        } catch {
+          // Intentionally empty catch block
+        }
         try {
-          (t as any).enabled = false;
-        } catch {}
+          (t as unknown as { enabled: boolean }).enabled = false;
+        } catch {
+          // Intentionally empty catch block
+        }
       });
     } catch (err) {
       console.warn("[Camera] error stopping tracks:", err);
@@ -171,7 +206,9 @@ const CameraView: React.FC = () => {
       if (url) {
         try {
           URL.revokeObjectURL(url);
-        } catch {}
+        } catch {
+          // Intentionally empty catch block
+        }
       }
     };
   }, [capturedImageBlob]);
@@ -207,14 +244,37 @@ const CameraView: React.FC = () => {
       canvas.height = height;
       ctx?.drawImage(video, 0, 0, width, height);
 
-      const blob = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, "image/jpeg", 0.95),
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            const url = URL.createObjectURL(blob);
+            setCapturedImageBlob(blob);
+            setLastThumbnail(url);
+            setShowPreview(true);
+
+            // Simulate adding to upload queue
+            const newPhoto = {
+              id: Math.random().toString(36).substring(7),
+              filename: `photo_${Date.now()}.jpeg`,
+              status: "uploading",
+              progress: 0,
+              timestamp: Date.now(),
+            };
+
+            // Auto-hide preview after 2 seconds
+            setTimeout(() => {
+              setShowPreview(false);
+            }, 2000);
+
+            // Simulate upload
+            setTimeout(() => {
+              simulateUpload(newPhoto.id);
+            }, 100);
+          }
+        },
+        "image/jpeg",
+        0.9,
       );
-
-      if (!blob) throw new Error("Failed to create image blob from canvas");
-
-      setCapturedImageBlob(blob);
-      setTempCapturedFileName(`${uuidv4()}.jpeg`);
     } catch (err) {
       console.error("[Camera] capture failed:", err);
       setErrorMessage("Failed to capture photo");
@@ -222,7 +282,7 @@ const CameraView: React.FC = () => {
       // allow future captures
       setIsCapturing(false);
     }
-  }, [cameraStatus, isCapturing]);
+  }, [cameraStatus, isCapturing, setLastThumbnail, simulateUpload]);
 
   const handleRetake = useCallback(() => {
     // revoke handled by effect cleanup; clear blob and metadata
@@ -281,16 +341,36 @@ const CameraView: React.FC = () => {
     <div className="relative w-full h-full bg-black flex items-center justify-center">
       {capturedImageUrl ? (
         <div className="relative w-full h-full flex flex-col items-center justify-center">
-          <img
-            src={capturedImageUrl}
-            alt="Captured Preview"
-            className="max-w-full max-h-full object-contain"
-            onError={(e) => {
-              console.error("[Camera] captured image failed to load", e);
-              setErrorMessage("Failed to load captured image");
-              handleRetake();
-            }}
-          />
+          <>
+            {/* Preview Overlay */}
+            {showPreview && capturedImageUrl && (
+              <div className="absolute inset-0 bg-black flex items-center justify-center z-40 animate-fadeIn">
+                <img
+                  src={capturedImageUrl}
+                  alt="Preview"
+                  className="max-w-full max-h-full object-contain"
+                  onError={(e) => {
+                    console.error("[Camera] captured image failed to load", e);
+                    setErrorMessage("Failed to load captured image");
+                    handleRetake();
+                  }}
+                />
+                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+                  <CheckCircle className="w-16 h-16 text-green-500 animate-scaleIn" />
+                </div>
+              </div>
+            )}
+            <img
+              src={capturedImageUrl}
+              alt="Captured Preview"
+              className="max-w-full max-h-full object-contain"
+              onError={(e) => {
+                console.error("[Camera] captured image failed to load", e);
+                setErrorMessage("Failed to load captured image");
+                handleRetake();
+              }}
+            />
+          </>
           {!isCapturing && (
             <div className="absolute bottom-10 flex space-x-8">
               <button
@@ -300,7 +380,14 @@ const CameraView: React.FC = () => {
                 Retake
               </button>
               <button
-                onClick={handleContinue}
+                onClick={() => {
+                  setShowPreview(true);
+                  // Auto-hide preview after 2 seconds
+                  setTimeout(() => {
+                    setShowPreview(false);
+                    handleContinue();
+                  }, 2000);
+                }}
                 className="px-8 py-4 bg-green-600 text-white rounded-full text-xl font-semibold shadow-lg hover:bg-green-700 transition-colors"
               >
                 Continue
@@ -318,18 +405,37 @@ const CameraView: React.FC = () => {
             className="w-full h-full object-cover bg-black"
           />
           <canvas ref={canvasRef} className="hidden" />
-          <div className="absolute bottom-10 w-full flex justify-center">
-            <button
-              onClick={capturePhoto}
-              disabled={isCapturing}
-              className="w-20 h-20 bg-white rounded-full border-4 border-gray-400 flex items-center justify-center shadow-lg hover:scale-110 active:scale-95 disabled:opacity-50 transition-transform"
-              aria-label="Capture"
-            >
-              <div className="w-16 h-16 bg-white rounded-full border-2 border-black" />
-            </button>
-          </div>
+          <CameraControls
+            wsConnected={wsConnected}
+            onCapture={capturePhoto}
+            onOpenQueue={onOpenQueue}
+            cameraActive={cameraStatus === "granted"}
+            showPreview={showPreview}
+            lastThumbnail={lastThumbnail}
+            uploadQueue={uploadQueue}
+          />
         </>
       )}
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        @keyframes scaleIn {
+          0% { transform: scale(0); }
+          50% { transform: scale(1.2); }
+          100% { transform: scale(1); }
+        }
+
+        .animate-fadeIn {
+          animation: fadeIn 0.3s ease-out;
+        }
+
+        .animate-scaleIn {
+          animation: scaleIn 0.5s ease-out;
+        }
+      `}</style>
     </div>
   );
 };
