@@ -1,6 +1,10 @@
 import { v4 as uuidv4 } from "uuid";
 import { opfsStorage } from "./OPFSStorage";
-import { webSocketClient } from "./WebSocketClient";
+// WebSocketClient is now managed through context
+// We'll get it from the WebSocketProvider when needed
+// WebSocketClient is now managed through context
+// We'll get it from the WebSocketProvider when needed
+import type { WebSocketClient } from "./WebSocketClient";
 
 // The 'export' keyword here is the fix for the error you're seeing.
 export type UploadStatus =
@@ -44,6 +48,7 @@ class UploadManager {
   private onChangeCallbacks: OnQueueChangeCallback[] = [];
   private apiUrl: string = UPLOAD_API_URL;
   private userId: string;
+  private webSocketClient: WebSocketClient | null = null;
   private processingLoopIntervalId: ReturnType<typeof setInterval> | null =
     null;
 
@@ -55,37 +60,38 @@ class UploadManager {
     window.addEventListener("online", this.handleNetworkChange);
     window.addEventListener("offline", this.handleNetworkChange);
 
-    webSocketClient.connect();
-    webSocketClient.on("photo.uploaded", (data: unknown) =>
-      this.handleWebSocketEvent(
-        "photo.uploaded",
-        data as Record<string, unknown>,
-      ),
-    );
-    webSocketClient.on("photo.processing.started", (data: unknown) =>
-      this.handleWebSocketEvent(
-        "photo.processing.started",
-        data as Record<string, unknown>,
-      ),
-    );
-    webSocketClient.on("photo.processing.stage.completed", (data: unknown) =>
-      this.handleWebSocketEvent(
-        "photo.processing.stage.completed",
-        data as Record<string, unknown>,
-      ),
-    );
-    webSocketClient.on("photo.processing.completed", (data: unknown) =>
-      this.handleWebSocketEvent(
-        "photo.processing.completed",
-        data as Record<string, unknown>,
-      ),
-    );
-    webSocketClient.on("photo.processing.failed", (data: unknown) =>
-      this.handleWebSocketEvent(
-        "photo.processing.failed",
-        data as Record<string, unknown>,
-      ),
-    );
+    // WebSocket event handling will be set up through context
+    // WebSocket event handling will be set up through context
+    // webSocketClient.on("photo.uploaded", (data: unknown) =>
+    //   this.handleWebSocketEvent(
+    //     "photo.uploaded",
+    //     data as Record<string, unknown>,
+    //   ),
+    // );
+    // this.webSocketClient.on("photo.processing.started", (data: unknown) =>
+    //   this.handleWebSocketEvent(
+    //     "photo.processing.started",
+    //     data as Record<string, unknown>,
+    //   ),
+    // );
+    // this.webSocketClient.on("photo.processing.completed", (data: unknown) =>
+    //   this.handleWebSocketEvent(
+    //     "photo.processing.completed",
+    //     data as Record<string, unknown>,
+    //   ),
+    // );
+    // this.webSocketClient.on("photo.processing.failed", (data: unknown) =>
+    //   this.handleWebSocketEvent(
+    //     "photo.processing.failed",
+    //     data as Record<string, unknown>,
+    //   ),
+    // );
+    // webSocketClient.on("photo.processing.failed", (data: unknown) =>
+    //   this.handleWebSocketEvent(
+    //     "photo.processing.failed",
+    //     data as Record<string, unknown>,
+    //   ),
+    // );
   }
 
   public static getInstance(): UploadManager {
@@ -123,6 +129,36 @@ class UploadManager {
     } catch (error) {
       console.error("Failed to save upload queue:", error);
     }
+  }
+
+  // Method to set up WebSocket event listeners
+  public setupWebSocketListeners(webSocketClient: WebSocketClient) {
+    this.webSocketClient = webSocketClient;
+
+    webSocketClient.on("photo.uploaded", (data: unknown) =>
+      this.handleWebSocketEvent(
+        "photo.uploaded",
+        data as Record<string, unknown>,
+      ),
+    );
+    webSocketClient.on("photo.processing.started", (data: unknown) =>
+      this.handleWebSocketEvent(
+        "photo.processing.started",
+        data as Record<string, unknown>,
+      ),
+    );
+    webSocketClient.on("photo.processing.completed", (data: unknown) =>
+      this.handleWebSocketEvent(
+        "photo.processing.completed",
+        data as Record<string, unknown>,
+      ),
+    );
+    webSocketClient.on("photo.processing.failed", (data: unknown) =>
+      this.handleWebSocketEvent(
+        "photo.processing.failed",
+        data as Record<string, unknown>,
+      ),
+    );
   }
 
   private notifyChange(): void {
@@ -261,7 +297,7 @@ class UploadManager {
           uploadedAt: Date.now(),
           backendPhotoId: backendPhotoId,
         });
-        webSocketClient.subscribeToPhotoEvents(backendPhotoId);
+        this.webSocketClient?.subscribeToPhotoEvents(backendPhotoId);
         await opfsStorage.remove(item.photoId, item.fileName);
       } else {
         throw new Error("API response did not contain photoId.");

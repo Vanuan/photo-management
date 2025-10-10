@@ -230,8 +230,6 @@ class WebSocketClient {
   }
 }
 
-// Export a singleton instance.
-// Ensure VITE_WEBSOCKET_URL is defined in .env or provide a default fallback.
-export const webSocketClient = new WebSocketClient(
-  import.meta.env.VITE_WEBSOCKET_URL || "ws://localhost:3000",
-);
+// Export the class itself, not a singleton instance.
+// This prevents accidental usage outside of context.
+export { WebSocketClient };
