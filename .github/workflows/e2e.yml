@@ -32,14 +32,21 @@ jobs:
       - name: Start services (prod storage + minio)
         run: docker compose -f shared-infra/docker-compose.yml up -d minio storage-service-prod
 
-      - name: Wait for storage service health
+      - name: Wait for storage service health (with logs)
         run: |
-          timeout 180 bash -c '
-            until curl -fsS http://localhost:3002/health/live; do
-              echo "Waiting for storage-service-prod...";
-              sleep 5;
-            done
-          '
+          for i in {1..36}; do
+            if curl -fsS http://localhost:3002/health/live; then
+              echo "storage-service-prod is healthy";
+              exit 0;
+            fi
+            echo "[$i/36] Waiting for storage-service-prod..."
+            docker compose -f shared-infra/docker-compose.yml ps || true
+            docker compose -f shared-infra/docker-compose.yml logs --tail=80 storage-service-prod || true
+            docker compose -f shared-infra/docker-compose.yml logs --tail=40 minio || true
+            sleep 5
+          done
+          echo "Timed out waiting for storage-service-prod";
+          exit 1
 
       - name: Run E2E tests (if present)
         run: npm run test:e2e --if-present || echo "No E2E tests defined"
