@@ -1,0 +1,15 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  summary:
+    name: PR Check Summary
+    runs-on: ubuntu-latest
+    steps:
+      - name: PR Check Status
+        run: |
+          echo "This PR triggers: Lint & Type Check, Unit Tests, and Integration Tests workflows."
+          echo "Please verify those checks have passed before merging."

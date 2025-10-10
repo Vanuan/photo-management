@@ -4,8 +4,10 @@
   "private": true,
   "workspaces": [
     "api-gateway",
-    "shared-infra/*",
-    "worker"
+    "shared-infra",
+    "shared-infra/packages/*",
+    "worker",
+    "frontend"
   ],
   "scripts": {
     "install-all": "npm install",

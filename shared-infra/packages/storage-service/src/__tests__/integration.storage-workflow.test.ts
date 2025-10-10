@@ -112,12 +112,6 @@ describe('Storage Workflow Integration Tests', () => {
     }
   });
 
-  beforeEach(() => {
-    if (process.env.SKIP_INTEGRATION_TESTS === 'true') {
-      pending('Integration tests skipped - services not available');
-    }
-  });
-
   describe('Complete Photo Lifecycle', () => {
     let photoId: string;
     const testImageData = TEST_BUFFERS.PNG_IMAGE;

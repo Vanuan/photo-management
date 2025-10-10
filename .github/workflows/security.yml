@@ -1,0 +1,82 @@
+name: Security Scanning
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0'
+
+jobs:
+  dependency-scan:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - name: root
+            path: .
+          - name: api-gateway
+            path: api-gateway
+          - name: worker
+            path: worker
+          - name: frontend
+            path: frontend
+          - name: shared-infra
+            path: shared-infra
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run npm audit (${{ matrix.name }})
+        working-directory: ${{ matrix.path }}
+        run: |
+          npm audit --production --audit-level=high || true
+
+      - name: Check for vulnerabilities (json)
+        working-directory: ${{ matrix.path }}
+        run: |
+          npm audit --production --json > audit-report.json || echo '{"error":"audit failed or not applicable"}' > audit-report.json
+
+      - name: Upload audit report
+        uses: actions/upload-artifact@v4        with:
+          name: npm-audit-report-${{ matrix.name }}
+          path: ${{ matrix.path }}/audit-report.json
+
+  container-scan:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - name: worker
+            context: worker
+            dockerfile: worker/Dockerfile
+            image: worker:test
+          - name: storage-service
+            context: shared-infra
+            dockerfile: shared-infra/packages/storage-service/Dockerfile
+            image: storage-service:test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image (${{ matrix.name }})
+        run: docker build -t ${{ matrix.image }} -f ${{ matrix.dockerfile }} ${{ matrix.context }}
+
+      - name: Run Trivy scan (${{ matrix.name }})
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ matrix.image }}
+          format: 'sarif'
+          output: 'trivy-results-${{ matrix.name }}.sarif'
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results-${{ matrix.name }}.sarif'

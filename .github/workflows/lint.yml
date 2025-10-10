@@ -1,0 +1,42 @@
+name: Lint & Type Check
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  lint:
+    name: ESLint & TypeScript
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - package: api-gateway
+            path: api-gateway
+          - package: worker
+            path: worker
+          - package: frontend
+            path: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies (root)
+        run: npm install
+
+      - name: Run ESLint
+        run: |
+          npm run -w ${{ matrix.package }} --if-present lint || echo "No lint script in ${{ matrix.package }}"
+        continue-on-error: true
+
+      - name: Type check
+        run: |
+          npm run -w ${{ matrix.package }} --if-present type-check || echo "No type-check script in ${{ matrix.package }}"

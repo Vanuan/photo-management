@@ -16,6 +16,7 @@ module.exports = {
   moduleFileExtensions: ['ts', 'js', 'json'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    '^@shared-infra/storage-core$': '<rootDir>/../storage-core/src',
   },
 
   // Coverage configuration

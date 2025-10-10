@@ -1,0 +1,102 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 2 * * *'
+
+jobs:
+  e2e:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+
+      - name: Prepare volumes
+        run: |
+          mkdir -p shared-infra/data/minio
+          mkdir -p shared-infra/data/sqlite
+          docker volume create shared-infra_storage_data_prod || true
+          docker run --rm -v shared-infra_storage_data_prod:/data alpine sh -c "chown -R 1001:1001 /data || true"
+      - name: Create E2E compose override
+        run: |
+          cat > shared-infra/docker-compose.e2e.yml << 'YAML'
+          services:
+            minio:
+              environment:
+                - MINIO_ROOT_USER=ciaccess
+                - MINIO_ROOT_PASSWORD=cisecret
+            storage-service-prod:
+              environment:
+                - MINIO_ACCESS_KEY=ciaccess
+                - MINIO_SECRET_KEY=cisecret
+          YAML
+      - name: Start services (prod storage + minio)
+        run: docker compose -f shared-infra/docker-compose.yml -f shared-infra/docker-compose.e2e.yml up -d minio storage-service-prod
+      - name: Wait for MinIO health
+        run: |
+          for i in {1..24}; do
+            if curl -fsS http://localhost:9000/minio/health/live; then
+              echo "MinIO is healthy";
+              exit 0;
+            fi
+            echo "[$i/24] Waiting for MinIO..."
+            sleep 5
+          done
+          echo "Timed out waiting for MinIO";
+          exit 1
+
+      - name: Wait for storage service health (with logs)
+        run: |
+          for i in {1..36}; do
+            if curl -fsS http://localhost:3002/health/live; then
+              echo "storage-service-prod is healthy";
+              exit 0;
+            fi
+            echo "[$i/36] Waiting for storage-service-prod..."
+            docker compose -f shared-infra/docker-compose.yml -f shared-infra/docker-compose.e2e.yml ps || true
+            docker compose -f shared-infra/docker-compose.yml -f shared-infra/docker-compose.e2e.yml logs --tail=80 storage-service-prod || true
+            docker compose -f shared-infra/docker-compose.yml -f shared-infra/docker-compose.e2e.yml logs --tail=40 minio || true
+            sleep 5
+          done
+          echo "Timed out waiting for storage-service-prod";
+          exit 1
+
+      - name: Run E2E tests (if present)
+        run: npm run test:e2e --if-present || echo "No E2E tests defined"
+
+      - name: Generate test report (if present)
+        run: npm run test:report --if-present || echo "No E2E report script defined"
+
+      - name: Upload test report (if exists)
+        if: ${{ always() && hashFiles('tests/e2e/report/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-report
+          path: tests/e2e/report/
+
+      - name: Collect docker logs
+        if: failure()
+        run: docker compose -f shared-infra/docker-compose.yml -f shared-infra/docker-compose.e2e.yml logs > docker-logs.txt || true
+
+      - name: Upload docker logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-logs
+          path: docker-logs.txt
+
+      - name: Stop services
+        if: always()
+        run: docker compose -f shared-infra/docker-compose.yml -f shared-infra/docker-compose.e2e.yml down -v

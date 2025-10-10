@@ -1,0 +1,88 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies (from root)
+        run: npm install
+
+      - name: Start MinIO
+        run: |
+          docker run -d \
+            --name minio \
+            -p 9000:9000 \
+            -e "MINIO_ROOT_USER=minioadmin" \
+            -e "MINIO_ROOT_PASSWORD=minioadmin" \
+            minio/minio server /data
+
+      - name: Wait for services
+        run: |
+          timeout 60 bash -c 'until curl -f http://localhost:9000/minio/health/live; do sleep 2; done'
+
+      - name: Build shared-infra packages (ordered)
+        run: |
+          npm run -w @shared-infra/storage-core build
+          npm run -w @shared-infra/storage-client build
+          npm run -w @shared-infra/storage-service build
+
+      - name: Run integration tests
+        run: npm run -w @shared-infra/storage test:integration
+        env:
+          REDIS_HOST: localhost
+          MINIO_ENDPOINT: localhost
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+
+      - name: Upload coverage (if exists)
+        if: ${{ always() && hashFiles('shared-infra/coverage/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-coverage
+          path: shared-infra/coverage/
+
+      - name: Collect service logs
+        if: failure()
+        run: |
+          docker ps -a || true
+          docker logs minio > minio-logs.txt 2>&1 || echo "No container 'minio' found" > minio-logs.txt
+          docker inspect minio > minio-inspect.json 2>&1 || true
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-logs
+          path: |
+            minio-logs.txt
+            minio-inspect.json
+
+      - name: Cleanup MinIO
+        if: always()
+        run: docker rm -f minio || true

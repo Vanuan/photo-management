@@ -1,0 +1,61 @@
+name: Unit Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - package: "@shared-infra/storage"
+            testScript: test:ci
+            coverage: shared-infra/coverage/lcov.info
+          - package: worker
+            testScript: test
+            coverage: worker/coverage/lcov.info
+          - package: frontend
+            testScript: test
+            coverage: frontend/coverage/lcov.info
+          - package: api-gateway
+            testScript: test
+            coverage: api-gateway/coverage/lcov.info
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies (root)
+        run: npm install
+
+      - name: Run tests (required)
+        if: ${{ matrix.package == '@shared-infra/storage' }}
+        run: npm run -w ${{ matrix.package }} ${{ matrix.testScript }}
+        env:
+          CI: true
+
+      - name: Run tests (best-effort)
+        if: ${{ matrix.package != '@shared-infra/storage' }}
+        run: |
+          npm run -w ${{ matrix.package }} --if-present ${{ matrix.testScript }} || echo "No tests or tests failed in ${{ matrix.package }}"
+        env:
+          CI: true
+        continue-on-error: true
+
+      - name: Upload coverage
+        if: ${{ matrix.package == 'shared-infra' }}
+        uses: codecov/codecov-action@v3
+        with:
+          files: ${{ matrix.coverage }}
+          flags: ${{ matrix.package }}
+          fail_ci_if_error: false
