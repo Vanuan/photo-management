@@ -4,7 +4,7 @@ module.exports = {
   projects: [
     '<rootDir>/packages/storage-core',
     '<rootDir>/packages/storage-client',
-    // storage-service has only integration tests, exclude from unit test runs
+    '<rootDir>/packages/storage-service'
   ],
 
   // Coverage collection across all packages
