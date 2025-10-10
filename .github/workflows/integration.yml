@@ -30,7 +30,8 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies (root)
+      - name: Install dependencies (shared-infra)
+        working-directory: shared-infra
         run: npm install
 
       - name: Start MinIO
@@ -47,12 +48,14 @@ jobs:
           timeout 60 bash -c 'until curl -f http://localhost:9000/minio/health/live; do sleep 2; done'
 
       - name: Build shared-infra packages (ordered)
+        working-directory: shared-infra
         run: |
           npm run -w @shared-infra/storage-core build
           npm run -w @shared-infra/storage-client build
           npm run -w @shared-infra/storage-service build
 
       - name: Run integration tests
+        working-directory: shared-infra
         run: npm run -w @shared-infra/storage test:integration
         env:
           REDIS_HOST: localhost
