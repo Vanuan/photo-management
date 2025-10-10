@@ -19,7 +19,7 @@
     "format:check": "prettier --check packages/*/src/**/*.{ts,js,json}",
     "test": "jest",
     "test:unit": "jest --selectProjects storage-core storage-client",
-    "test:integration": "jest --selectProjects storage-service --testNamePattern='integration' --coverage=false",
+    "test:integration": "jest --selectProjects storage-service --coverage=false",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:coverage:unit": "jest --coverage --selectProjects storage-core storage-client",
