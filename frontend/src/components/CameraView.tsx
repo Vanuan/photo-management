@@ -19,6 +19,7 @@ interface UploadItem {
 interface CameraViewProps {
   wsConnected: boolean;
   onOpenQueue: () => void;
+  onOpenNetworkPanel: () => void;
   lastThumbnail: string | null;
   setLastThumbnail: (thumbnail: string) => void;
   uploadQueue: UploadItem[];
@@ -29,6 +30,7 @@ interface CameraViewProps {
 const CameraView: React.FC<CameraViewProps> = ({
   wsConnected,
   onOpenQueue,
+  onOpenNetworkPanel,
   lastThumbnail,
   setLastThumbnail,
   uploadQueue,
@@ -411,6 +413,7 @@ const CameraView: React.FC<CameraViewProps> = ({
             wsConnected={wsConnected}
             onCapture={capturePhoto}
             onOpenQueue={onOpenQueue}
+            onOpenNetworkPanel={onOpenNetworkPanel}
             cameraActive={cameraStatus === "granted"}
             showPreview={showPreview}
             lastThumbnail={lastThumbnail}

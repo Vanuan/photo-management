@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useState } from "react";
 import CameraView from "./components/CameraView";
 import UploadQueue from "./components/UploadQueue";
 import MainLayout from "./components/MainLayout";
 import usePhotoCapture from "./hooks/usePhotoCapture";
 import { useWebSocket } from "./contexts/useWebSocket";
+import ConnectionStatusSidebar from "./components/ConnectionStatusSidebar";
 import "./App.css"; // Ensure Tailwind directives are imported
 
 const App: React.FC = () => {
@@ -21,6 +22,8 @@ const App: React.FC = () => {
     removeFromQueue,
   } = usePhotoCapture();
 
+  const [networkPanelOpen, setNetworkPanelOpen] = useState(false);
+
   return (
     <MainLayout>
       {/* Main Content Area: Camera View */}
@@ -28,6 +31,7 @@ const App: React.FC = () => {
         <CameraView
           wsConnected={wsConnected}
           onOpenQueue={() => setSidebarOpen(true)}
+          onOpenNetworkPanel={() => setNetworkPanelOpen(true)}
           lastThumbnail={lastThumbnail}
           setLastThumbnail={setLastThumbnail}
           uploadQueue={uploadQueue}
@@ -43,6 +47,15 @@ const App: React.FC = () => {
         uploadQueue={uploadQueue}
         retryUpload={retryUpload}
         removeFromQueue={removeFromQueue}
+      />
+
+      {/* Connection Status Panel */}
+      <ConnectionStatusSidebar
+        isOpen={networkPanelOpen}
+        onClose={() => setNetworkPanelOpen(false)}
+        wsConnected={wsConnected}
+        pendingUploads={pendingUploads}
+        uploadQueueLength={uploadQueue.length}
       />
     </MainLayout>
   );

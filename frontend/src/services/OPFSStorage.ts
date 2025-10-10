@@ -1,13 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
-
-interface OPFSFileMetadata {
-  id: string;
-  name: string;
-  type: string;
-  size: number;
-  lastModified: number;
-  // Add any other relevant metadata
-}
+import { v4 as uuidv4 } from "uuid";
 
 class OPFSStorage {
   private rootDirectory: FileSystemDirectoryHandle | null = null;
@@ -21,21 +12,30 @@ class OPFSStorage {
    */
   async initialize(): Promise<void> {
     if (this.isInitialized) {
-      console.warn('OPFSStorage already initialized.');
+      console.warn("OPFSStorage already initialized.");
       return;
     }
 
     try {
-      if ('navigator' in window && 'storage' in navigator && 'getDirectory' in navigator.storage) {
+      if (
+        "navigator" in window &&
+        "storage" in navigator &&
+        "getDirectory" in navigator.storage
+      ) {
         this.rootDirectory = await navigator.storage.getDirectory();
-        console.log('OPFSStorage initialized successfully.');
+        console.log("OPFSStorage initialized successfully.");
         this.isInitialized = true;
       } else {
-        console.warn('Origin Private File System API not available. Falling back to in-memory storage.');
+        console.warn(
+          "Origin Private File System API not available. Falling back to in-memory storage.",
+        );
         this.isInitialized = true; // Still mark as initialized, just using fallback
       }
     } catch (error) {
-      console.error('Failed to initialize OPFSStorage, falling back to in-memory:', error);
+      console.error(
+        "Failed to initialize OPFSStorage, falling back to in-memory:",
+        error,
+      );
       this.rootDirectory = null; // Ensure it's null if an error occurs
       this.isInitialized = true; // Still mark as initialized
     }
@@ -54,11 +54,13 @@ class OPFSStorage {
     }
 
     const id = uuidv4();
-    const name = fileName || `${id}.${blob.type.split('/')[1] || 'bin'}`; // e.g., image/jpeg -> jpeg
+    const name = fileName || `${id}.${blob.type.split("/")[1] || "bin"}`; // e.g., image/jpeg -> jpeg
 
     if (this.rootDirectory) {
       try {
-        const fileHandle = await this.rootDirectory.getFileHandle(name, { create: true });
+        const fileHandle = await this.rootDirectory.getFileHandle(name, {
+          create: true,
+        });
         const writable = await fileHandle.createWritable();
         await writable.write(blob);
         await writable.close();
@@ -66,7 +68,10 @@ class OPFSStorage {
         // Optionally store metadata in IndexedDB or another service for quick lookup
         return id;
       } catch (error) {
-        console.error(`Failed to store file ${name} in OPFS, using in-memory fallback:`, error);
+        console.error(
+          `Failed to store file ${name} in OPFS, using in-memory fallback:`,
+          error,
+        );
         this.inMemoryCache.set(id, blob);
         return id;
       }
@@ -96,10 +101,15 @@ class OPFSStorage {
         console.log(`File ${fileName} (ID: ${id}) retrieved from OPFS.`);
         return file;
       } catch (error: any) {
-        if (error.name === 'NotFoundError') {
-          console.warn(`File ${fileName} (ID: ${id}) not found in OPFS, checking in-memory.`);
+        if (error.name === "NotFoundError") {
+          console.warn(
+            `File ${fileName} (ID: ${id}) not found in OPFS, checking in-memory.`,
+          );
         } else {
-          console.error(`Failed to retrieve file ${fileName} from OPFS, checking in-memory:`, error);
+          console.error(
+            `Failed to retrieve file ${fileName} from OPFS, checking in-memory:`,
+            error,
+          );
         }
         return this.inMemoryCache.get(id) || null;
       }
@@ -126,10 +136,15 @@ class OPFSStorage {
         this.inMemoryCache.delete(id); // Also remove from cache if it was there
         return true;
       } catch (error: any) {
-        if (error.name === 'NotFoundError') {
-          console.warn(`File ${fileName} (ID: ${id}) not found in OPFS for removal, checking in-memory.`);
+        if (error.name === "NotFoundError") {
+          console.warn(
+            `File ${fileName} (ID: ${id}) not found in OPFS for removal, checking in-memory.`,
+          );
         } else {
-          console.error(`Failed to remove file ${fileName} from OPFS, attempting in-memory:`, error);
+          console.error(
+            `Failed to remove file ${fileName} from OPFS, attempting in-memory:`,
+            error,
+          );
         }
         return this.inMemoryCache.delete(id);
       }
@@ -153,12 +168,12 @@ class OPFSStorage {
         const estimate = await navigator.storage.estimate();
         return { usage: estimate.usage || 0, quota: estimate.quota || 0 };
       } catch (error) {
-        console.error('Failed to get storage estimate:', error);
+        console.error("Failed to get storage estimate:", error);
       }
     }
     // Fallback for in-memory or if estimate API fails
     let usage = 0;
-    this.inMemoryCache.forEach(blob => {
+    this.inMemoryCache.forEach((blob) => {
       usage += blob.size;
     });
     return { usage: usage, quota: -1 }; // -1 indicates unknown quota

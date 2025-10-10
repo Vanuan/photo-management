@@ -16,6 +16,7 @@ interface CameraControlsProps {
   wsConnected: boolean;
   onCapture: () => void;
   onOpenQueue: () => void;
+  onOpenNetworkPanel: () => void;
   cameraActive: boolean;
   showPreview: boolean;
   lastThumbnail: string | null;
@@ -27,6 +28,7 @@ const CameraControls: React.FC<CameraControlsProps> = ({
   wsConnected,
   onCapture,
   onOpenQueue,
+  onOpenNetworkPanel,
   cameraActive,
   showPreview,
   lastThumbnail,
@@ -42,6 +44,7 @@ const CameraControls: React.FC<CameraControlsProps> = ({
         {/* Left side - Connection Status */}
         <div className="flex-1 flex justify-center items-end">
           <button
+            onClick={() => onOpenNetworkPanel()}
             className={`p-3.5 rounded-full shadow-xl transition-all backdrop-blur-sm relative ${
               wsConnected
                 ? "bg-green-500/90 hover:scale-105 active:scale-95"
