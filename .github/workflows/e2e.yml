@@ -29,8 +29,17 @@ jobs:
           mkdir -p shared-infra/data/sqlite
           docker volume create shared-infra_storage_data_prod || true
           docker run --rm -v shared-infra_storage_data_prod:/data alpine sh -c "chown -R 1001:1001 /data || true"
+      - name: Create E2E compose override
+        run: |
+          cat > shared-infra/docker-compose.e2e.yml << 'YAML'
+          services:
+            storage-service-prod:
+              environment:
+                - MINIO_ACCESS_KEY=ciaccess
+                - MINIO_SECRET_KEY=cisecret
+          YAML
       - name: Start services (prod storage + minio)
-        run: docker compose -f shared-infra/docker-compose.yml up -d minio storage-service-prod
+        run: docker compose -f shared-infra/docker-compose.yml -f shared-infra/docker-compose.e2e.yml up -d minio storage-service-prod
 
       - name: Wait for storage service health (with logs)
         run: |
@@ -40,9 +49,9 @@ jobs:
               exit 0;
             fi
             echo "[$i/36] Waiting for storage-service-prod..."
-            docker compose -f shared-infra/docker-compose.yml ps || true
-            docker compose -f shared-infra/docker-compose.yml logs --tail=80 storage-service-prod || true
-            docker compose -f shared-infra/docker-compose.yml logs --tail=40 minio || true
+            docker compose -f shared-infra/docker-compose.yml -f shared-infra/docker-compose.e2e.yml ps || true
+            docker compose -f shared-infra/docker-compose.yml -f shared-infra/docker-compose.e2e.yml logs --tail=80 storage-service-prod || true
+            docker compose -f shared-infra/docker-compose.yml -f shared-infra/docker-compose.e2e.yml logs --tail=40 minio || true
             sleep 5
           done
           echo "Timed out waiting for storage-service-prod";
@@ -63,7 +72,7 @@ jobs:
 
       - name: Collect docker logs
         if: failure()
-        run: docker compose -f shared-infra/docker-compose.yml logs > docker-logs.txt
+        run: docker compose -f shared-infra/docker-compose.yml -f shared-infra/docker-compose.e2e.yml logs > docker-logs.txt
 
       - name: Upload docker logs
         if: failure()
@@ -74,4 +83,4 @@ jobs:
 
       - name: Stop services
         if: always()
-        run: docker compose -f shared-infra/docker-compose.yml down -v
+        run: docker compose -f shared-infra/docker-compose.yml -f shared-infra/docker-compose.e2e.yml down -v
