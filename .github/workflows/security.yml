@@ -1,10 +1,7 @@
 name: Security Scanning
 
 on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
   schedule:
     - cron: '0 0 * * 0'
 
@@ -46,8 +43,7 @@ jobs:
           npm audit --production --json > audit-report.json || echo '{"error":"audit failed or not applicable"}' > audit-report.json
 
       - name: Upload audit report
-        uses: actions/upload-artifact@v3
-        with:
+        uses: actions/upload-artifact@v4        with:
           name: npm-audit-report-${{ matrix.name }}
           path: ${{ matrix.path }}/audit-report.json
 

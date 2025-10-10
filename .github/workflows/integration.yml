@@ -29,7 +29,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install dependencies (shared-infra)
         working-directory: shared-infra
@@ -63,7 +62,7 @@ jobs:
 
       - name: Upload coverage (if exists)
         if: ${{ always() && hashFiles('shared-infra/coverage/**') != '' }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: integration-coverage
           path: shared-infra/coverage/
@@ -74,7 +73,7 @@ jobs:
 
       - name: Upload logs
         if: failure()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: service-logs
           path: '*.txt'
