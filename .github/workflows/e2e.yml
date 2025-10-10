@@ -22,8 +22,6 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies (root)
-        run: npm install --workspaces=false
 
       - name: Start services (storage + minio)
         run: docker compose -f shared-infra/docker-compose.yml up -d
