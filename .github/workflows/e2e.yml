@@ -33,6 +33,10 @@ jobs:
         run: |
           cat > shared-infra/docker-compose.e2e.yml << 'YAML'
           services:
+            minio:
+              environment:
+                - MINIO_ROOT_USER=ciaccess
+                - MINIO_ROOT_PASSWORD=cisecret
             storage-service-prod:
               environment:
                 - MINIO_ACCESS_KEY=ciaccess
@@ -40,6 +44,18 @@ jobs:
           YAML
       - name: Start services (prod storage + minio)
         run: docker compose -f shared-infra/docker-compose.yml -f shared-infra/docker-compose.e2e.yml up -d minio storage-service-prod
+      - name: Wait for MinIO health
+        run: |
+          for i in {1..24}; do
+            if curl -fsS http://localhost:9000/minio/health/live; then
+              echo "MinIO is healthy";
+              exit 0;
+            fi
+            echo "[$i/24] Waiting for MinIO..."
+            sleep 5
+          done
+          echo "Timed out waiting for MinIO";
+          exit 1
 
       - name: Wait for storage service health (with logs)
         run: |
