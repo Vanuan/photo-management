@@ -27,13 +27,15 @@ jobs:
         run: |
           mkdir -p shared-infra/data/minio
           mkdir -p shared-infra/data/sqlite
+          docker volume create shared-infra_storage_data_prod || true
+          docker run --rm -v shared-infra_storage_data_prod:/data alpine sh -c "chown -R 1001:1001 /data || true"
       - name: Start services (prod storage + minio)
         run: docker compose -f shared-infra/docker-compose.yml up -d minio storage-service-prod
 
       - name: Wait for storage service health
         run: |
           timeout 180 bash -c '
-            until curl -fsS http://localhost:3002/health; do
+            until curl -fsS http://localhost:3002/health/live; do
               echo "Waiting for storage-service-prod...";
               sleep 5;
             done
