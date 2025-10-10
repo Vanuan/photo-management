@@ -29,17 +29,14 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies
-        working-directory: ${{ matrix.path }}
+      - name: Install dependencies (root)
         run: npm install
 
       - name: Run ESLint
-        working-directory: ${{ matrix.path }}
         run: |
-          npm run lint --if-present || echo "No lint script in ${{ matrix.package }}"
+          npm run -w ${{ matrix.package }} --if-present lint || echo "No lint script in ${{ matrix.package }}"
         continue-on-error: true
 
       - name: Type check
-        working-directory: ${{ matrix.path }}
         run: |
-          npm run type-check --if-present || echo "No type-check script in ${{ matrix.package }}"
+          npm run -w ${{ matrix.package }} --if-present type-check || echo "No type-check script in ${{ matrix.package }}"

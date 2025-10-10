@@ -14,20 +14,16 @@ jobs:
     strategy:
       matrix:
         include:
-          - package: shared-infra
-            path: shared-infra
+          - package: "@shared-infra/storage"
             testScript: test:ci
             coverage: shared-infra/coverage/lcov.info
           - package: worker
-            path: worker
             testScript: test
             coverage: worker/coverage/lcov.info
           - package: frontend
-            path: frontend
             testScript: test
             coverage: frontend/coverage/lcov.info
           - package: api-gateway
-            path: api-gateway
             testScript: test
             coverage: api-gateway/coverage/lcov.info
 
@@ -39,22 +35,19 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies
-        working-directory: ${{ matrix.path }}
+      - name: Install dependencies (root)
         run: npm install
 
       - name: Run tests (required)
-        if: ${{ matrix.package == 'shared-infra' }}
-        working-directory: ${{ matrix.path }}
-        run: npm run ${{ matrix.testScript }}
+        if: ${{ matrix.package == '@shared-infra/storage' }}
+        run: npm run -w ${{ matrix.package }} ${{ matrix.testScript }}
         env:
           CI: true
 
       - name: Run tests (best-effort)
-        if: ${{ matrix.package != 'shared-infra' }}
-        working-directory: ${{ matrix.path }}
+        if: ${{ matrix.package != '@shared-infra/storage' }}
         run: |
-          npm run ${{ matrix.testScript }} --if-present || echo "No tests or tests failed in ${{ matrix.package }}"
+          npm run -w ${{ matrix.package }} --if-present ${{ matrix.testScript }} || echo "No tests or tests failed in ${{ matrix.package }}"
         env:
           CI: true
         continue-on-error: true

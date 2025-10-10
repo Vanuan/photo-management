@@ -23,6 +23,10 @@ jobs:
           node-version: '20'
 
 
+      - name: Prepare volumes
+        run: |
+          mkdir -p shared-infra/data/minio
+          mkdir -p shared-infra/data/sqlite
       - name: Start services (prod storage + minio)
         run: docker compose -f shared-infra/docker-compose.yml up -d minio storage-service-prod
 
