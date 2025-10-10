@@ -19,7 +19,7 @@ COPY packages/storage-core/package*.json ./packages/storage-core/
 COPY packages/storage-service/package*.json ./packages/storage-service/
 
 # Install all dependencies including dev dependencies
-RUN npm ci
+RUN npm install
 
 # Copy source code
 COPY packages/storage-core ./packages/storage-core
@@ -51,7 +51,7 @@ COPY packages/storage-core/package*.json ./packages/storage-core/
 COPY packages/storage-service/package*.json ./packages/storage-service/
 
 # Install all dependencies
-RUN npm ci
+RUN npm install
 
 # Copy source code
 COPY packages/storage-core ./packages/storage-core
@@ -78,7 +78,7 @@ COPY packages/storage-core/package*.json ./packages/storage-core/
 COPY packages/storage-service/package*.json ./packages/storage-service/
 
 # Install production dependencies only
-RUN npm ci --only=production --no-audit --no-fund
+RUN npm install --omit=dev --no-audit --no-fund
 
 # Copy built application from builder stage
 COPY --from=builder /app/packages/storage-core/dist ./packages/storage-core/dist

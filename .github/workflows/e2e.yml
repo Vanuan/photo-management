@@ -23,14 +23,14 @@ jobs:
           node-version: '20'
 
 
-      - name: Start services (storage + minio)
-        run: docker compose -f shared-infra/docker-compose.yml up -d
+      - name: Start services (prod storage + minio)
+        run: docker compose -f shared-infra/docker-compose.yml up -d minio storage-service-prod
 
       - name: Wait for storage service health
         run: |
           timeout 180 bash -c '
-            until curl -fsS http://localhost:3001/health; do
-              echo "Waiting for storage-service...";
+            until curl -fsS http://localhost:3002/health; do
+              echo "Waiting for storage-service-prod...";
               sleep 5;
             done
           '
