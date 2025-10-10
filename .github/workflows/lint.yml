@@ -29,8 +29,8 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies (root with all workspaces)
-        run: npm install --workspaces --include-workspace-root
+      - name: Install dependencies (root)
+        run: npm install
 
       - name: Run ESLint
         run: |
