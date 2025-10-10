@@ -69,8 +69,9 @@ Create these in GitHub repository settings → Secrets and variables → Actions
 - `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` (only if Docker Hub is used)
 
 ## Notes and Alignments
-- This repo does not include `package-lock.json` files. Workflows use `npm install` rather than `npm ci` for compatibility. Consider adding lockfiles for reproducible builds and faster caches.
-- `frontend` currently sits outside the root npm workspaces; the workflows run per-directory to accommodate this. You can optionally add `frontend` to the root `workspaces` to simplify installs.
+- Worker and api-gateway use `"*"` (not `workspace:*`) for workspace dependencies, which is npm-compatible.
+- Workflows use `npm install` rather than `npm ci` because lockfiles are not present. Consider adding lockfiles for reproducible builds and faster caches.
+- `frontend` sits at the top level; root workspaces include it for unified dependency management.
 - Docker builds target images that have Dockerfiles: `worker` and `shared-infra/packages/storage-service`. Update matrices and Dockerfiles if/when `api-gateway` or `frontend` containerization is added.
 - E2E and smoke test scripts are invoked with `--if-present` to avoid failures if not yet implemented. Add scripts to tighten the checks.
 
