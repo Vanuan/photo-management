@@ -1,5 +1,6 @@
 import React from "react";
-import { Camera, Wifi, WifiOff, Upload, CheckCircle } from "lucide-react";
+import { Camera, Upload, CheckCircle } from "lucide-react";
+import StatusIndicator from "./StatusIndicator";
 
 interface UploadItem {
   id: string;
@@ -19,6 +20,7 @@ interface CameraControlsProps {
   showPreview: boolean;
   lastThumbnail: string | null;
   uploadQueue: UploadItem[];
+  pendingUploads: number;
 }
 
 const CameraControls: React.FC<CameraControlsProps> = ({
@@ -29,6 +31,7 @@ const CameraControls: React.FC<CameraControlsProps> = ({
   showPreview,
   lastThumbnail,
   uploadQueue,
+  pendingUploads,
 }) => {
   // Get the first item in the queue for status display
   const firstItem = uploadQueue.length > 0 ? uploadQueue[0] : null;
@@ -39,18 +42,17 @@ const CameraControls: React.FC<CameraControlsProps> = ({
         {/* Left side - Connection Status */}
         <div className="flex-1 flex justify-center items-end">
           <button
-            className={`p-3.5 rounded-full shadow-xl transition-all backdrop-blur-sm ${
+            className={`p-3.5 rounded-full shadow-xl transition-all backdrop-blur-sm relative ${
               wsConnected
                 ? "bg-green-500/90 hover:scale-105 active:scale-95"
                 : "bg-red-500/90"
             }`}
             aria-label={wsConnected ? "Connected" : "Disconnected"}
           >
-            {wsConnected ? (
-              <Wifi className="w-6 h-6 text-white" />
-            ) : (
-              <WifiOff className="w-6 h-6 text-white" />
-            )}
+            <StatusIndicator
+              pendingUploads={pendingUploads}
+              wsConnected={wsConnected}
+            />
           </button>
         </div>
 

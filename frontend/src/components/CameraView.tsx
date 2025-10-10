@@ -23,6 +23,7 @@ interface CameraViewProps {
   setLastThumbnail: (thumbnail: string) => void;
   uploadQueue: UploadItem[];
   simulateUpload: (id: string) => void;
+  pendingUploads: number;
 }
 
 const CameraView: React.FC<CameraViewProps> = ({
@@ -32,6 +33,7 @@ const CameraView: React.FC<CameraViewProps> = ({
   setLastThumbnail,
   uploadQueue,
   simulateUpload,
+  pendingUploads,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -413,6 +415,7 @@ const CameraView: React.FC<CameraViewProps> = ({
             showPreview={showPreview}
             lastThumbnail={lastThumbnail}
             uploadQueue={uploadQueue}
+            pendingUploads={pendingUploads}
           />
         </>
       )}

@@ -1,14 +1,15 @@
 import React from "react";
 import CameraView from "./components/CameraView";
 import UploadQueue from "./components/UploadQueue";
-import StatusIndicator from "./components/StatusIndicator";
 import MainLayout from "./components/MainLayout";
 import usePhotoCapture from "./hooks/usePhotoCapture";
+import { useWebSocket } from "./contexts/useWebSocket";
 import "./App.css"; // Ensure Tailwind directives are imported
 
 const App: React.FC = () => {
+  const { isConnected: wsConnected } = useWebSocket();
+
   const {
-    wsConnected,
     uploadQueue,
     lastThumbnail,
     sidebarOpen,
@@ -22,9 +23,6 @@ const App: React.FC = () => {
 
   return (
     <MainLayout>
-      {/* Status Indicator (WebSocket & Upload Summary) */}
-      <StatusIndicator pendingUploads={pendingUploads} />
-
       {/* Main Content Area: Camera View */}
       <main className="flex-1 flex items-center justify-center">
         <CameraView
@@ -34,6 +32,7 @@ const App: React.FC = () => {
           setLastThumbnail={setLastThumbnail}
           uploadQueue={uploadQueue}
           simulateUpload={simulateUpload}
+          pendingUploads={pendingUploads}
         />
       </main>
 
