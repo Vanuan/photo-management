@@ -42,8 +42,8 @@ jobs:
                 - MINIO_ACCESS_KEY=ciaccess
                 - MINIO_SECRET_KEY=cisecret
           YAML
-      - name: Start services (prod storage + minio)
-        run: docker compose -f shared-infra/docker-compose.yml -f shared-infra/docker-compose.e2e.yml up -d minio storage-service-prod
+      - name: Start services (prod storage + minio + redis)
+        run: docker compose -f shared-infra/docker-compose.yml -f shared-infra/docker-compose.e2e.yml up -d minio storage-service-prod redis
       - name: Wait for MinIO health
         run: |
           for i in {1..24}; do
