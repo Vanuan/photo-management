@@ -30,9 +30,13 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies (shared-infra with workspaces)
+      - name: Install dependencies (shared-infra)
         working-directory: shared-infra
-        run: npm install --workspaces --include-workspace-root
+        run: |
+          npm install
+          echo "=== Checking installed packages ==="
+          ls -la packages/storage-core/node_modules/ || echo "No node_modules in storage-core"
+          npm list --depth=0 -w @shared-infra/storage-core || true
 
       - name: Start MinIO
         run: |
@@ -47,12 +51,9 @@ jobs:
         run: |
           timeout 60 bash -c 'until curl -f http://localhost:9000/minio/health/live; do sleep 2; done'
 
-      - name: Build shared-infra packages (ordered)
+      - name: Build shared-infra packages
         working-directory: shared-infra
-        run: |
-          npm run -w @shared-infra/storage-core build
-          npm run -w @shared-infra/storage-client build
-          npm run -w @shared-infra/storage-service build
+        run: npm run build
 
       - name: Run integration tests
         working-directory: shared-infra
