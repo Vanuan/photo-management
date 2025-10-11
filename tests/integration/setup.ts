@@ -4,10 +4,10 @@ import { createClient } from 'redis';
 import { Client as MinioClient } from 'minio';
 
 const SERVICES = {
-  apiGateway: 'http://localhost:3000',
-  storageService: 'http://localhost:3001',
-  redis: { host: 'localhost', port: 6379 },
-  minio: { host: 'localhost', port: 9000 },
+  apiGateway: process.env.API_GATEWAY_URL || 'http://localhost:3000',
+  storageService: process.env.STORAGE_SERVICE_URL || 'http://localhost:3002',
+  redis: { host: process.env.REDIS_HOST || 'localhost', port: parseInt(process.env.REDIS_PORT || '6379', 10) },
+  minio: { host: process.env.MINIO_HOST || 'localhost', port: parseInt(process.env.MINIO_PORT || '9000', 10) },
 };
 
 const MAX_RETRIES = 30;
@@ -199,17 +199,22 @@ async function clearDatabase(): Promise<void> {
  * Start all services using docker-compose
  */
 function startServices(): void {
-  console.log('Starting services with docker-compose...');
-  
-  try {
-    execSync('docker-compose -f docker-compose.e2e.yml up -d', {
-      stdio: 'inherit',
-      cwd: process.cwd(),
-    });
-    console.log('✓ Services started');
-  } catch (error) {
-    throw new Error(`Failed to start services: ${error}`);
+  console.log('Starting services (local) ...');
+  const commands = [
+    'docker compose -f docker-compose.e2e.yml up -d',
+    'docker-compose -f docker-compose.e2e.yml up -d',
+  ];
+  let lastError: any = null;
+  for (const cmd of commands) {
+    try {
+      execSync(cmd, { stdio: 'inherit', cwd: process.cwd() });
+      console.log('✓ Services started');
+      return;
+    } catch (error) {
+      lastError = error;
+    }
   }
+  throw new Error(`Failed to start services: ${lastError}`);
 }
 
 /**
@@ -219,9 +224,13 @@ export async function setupTestEnvironment(): Promise<void> {
   console.log('=== Setting up test environment ===\n');
   
   try {
-    // Start services
-    startServices();
-    
+    const manageServices = process.env.E2E_MANAGE_SERVICES === 'true' && process.env.CI !== 'true';
+    if (manageServices) {
+      startServices();
+    } else {
+      console.log('Skipping local service start (managed by CI workflow)');
+    }
+
     // Wait for all services to be healthy
     await Promise.all([
       waitForRedis(SERVICES.redis.host, SERVICES.redis.port),
