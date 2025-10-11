@@ -2,8 +2,10 @@
   "name": "photo-processing-worker",
   "version": "1.0.0",
   "type": "module",
-  "main": "src/index.js",
+  "main": "dist/index.js",
   "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc",
     "start": "node dist/index.js",
     "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node' src/index.ts",
     "test": "jest",
