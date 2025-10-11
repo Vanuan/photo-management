@@ -1,84 +1,101 @@
-import {
-  JobQueueCoordinator,
-  PhotoProcessingJob,
-} from "@shared-infra/job-queue";
-import { StorageCoordinator } from "@shared-infra/storage-client";
-import { EventBusService } from "@shared-infra/event-bus";
+import { createJobQueueCoordinator, JobQueueCoordinator } from "@shared-infra/job-queue";
+import { StorageClient } from "@shared-infra/storage-client";
+import { EventBusClient } from "@shared-infra/event-bus";
 import { PhotoProcessingPipeline } from "./photo-processing-pipeline";
 import config from "./config";
-import { Worker } from "bullmq";
+import Minio from "minio";
 
 class WorkerService {
   private jobQueue: JobQueueCoordinator;
-  private storage: StorageCoordinator;
-  private eventBus: EventBusService;
+  private storageClient: StorageClient;
+  private eventBus: EventBusClient;
+  private minio: Minio.Client;
   private processingPipeline: PhotoProcessingPipeline;
-  private worker: Worker | null;
 
   constructor() {
-    this.jobQueue = new JobQueueCoordinator(
-      config.jobQueue.redis,
-      config.jobQueue.queueName,
-    );
-    this.storage = new StorageCoordinator(config.storage.s3);
-    this.eventBus = new EventBusService(
-      config.eventBus.redis,
-      config.eventBus.channel,
-    );
+    this.jobQueue = createJobQueueCoordinator({
+      redis: {
+        host: config.jobQueue.redis.host,
+        port: config.jobQueue.redis.port,
+      },
+    } as any);
+
+    this.storageClient = new StorageClient({
+      storageServiceUrl: process.env.STORAGE_SERVICE_URL || "http://localhost:3001",
+      minioConfig: {
+        endPoint: (process.env.MINIO_ENDPOINT || "localhost").replace(/^https?:\/\//, ""),
+        port: parseInt(process.env.MINIO_PORT || "9000", 10),
+        useSSL: process.env.MINIO_USE_SSL === "true",
+        accessKey: process.env.MINIO_ACCESS_KEY || "minioadmin",
+        secretKey: process.env.MINIO_SECRET_KEY || "minioadmin",
+        region: process.env.MINIO_REGION || "us-east-1",
+      },
+    });
+
+    this.minio = new Minio.Client({
+      endPoint: (process.env.MINIO_ENDPOINT || "localhost").replace(/^https?:\/\//, ""),
+      port: parseInt(process.env.MINIO_PORT || "9000", 10),
+      useSSL: process.env.MINIO_USE_SSL === "true",
+      accessKey: process.env.MINIO_ACCESS_KEY || "minioadmin",
+      secretKey: process.env.MINIO_SECRET_KEY || "minioadmin",
+      region: process.env.MINIO_REGION || "us-east-1",
+    });
+
+    this.eventBus = new EventBusClient({
+      serviceName: "photo-processing-worker",
+      redis: {
+        host: config.eventBus.redis.host,
+        port: config.eventBus.redis.port,
+      },
+    } as any);
+
     this.processingPipeline = new PhotoProcessingPipeline(
-      this.storage,
+      this.minio,
+      this.storageClient,
       this.eventBus,
     );
-    this.worker = null;
   }
 
   public async start(): Promise<void> {
     console.log("Worker Service starting...");
-    await this.storage.connect();
     await this.eventBus.connect();
 
-    this.worker = this.jobQueue.createWorker(
-      config.jobQueue.queueName,
-      async (job) => {
+    await this.jobQueue.initialize?.();
+
+    await this.jobQueue.registerWorker(
+      process.env.JOB_QUEUE_NAME || "photo-processing",
+      async (job: any) => {
         console.log(`Processing job: ${job.id} of type ${job.name}`);
         try {
-          const result = await this.processJob(job as PhotoProcessingJob);
+          const result = await this.processJob(job.data);
           console.log(`Job ${job.id} completed successfully.`);
-          return result;
+          return result as any;
         } catch (error: any) {
           console.error(`Job ${job.id} failed:`, error);
-          throw error; // BullMQ handles retries based on worker options
+          throw error;
         }
       },
-      config.jobQueue.workerConfig,
+      { concurrency: parseInt(process.env.WORKER_CONCURRENCY || "2", 10) }
     );
-
-    this.worker.on("completed", (job) => {
-      console.log(`Job ${job.id} has completed`);
-    });
-
-    this.worker.on("failed", (job, err) => {
-      console.error(`Job ${job?.id} has failed with error: ${err.message}`);
-    });
 
     console.log("Worker Service started and listening for jobs.");
   }
 
-  private async processJob(job: PhotoProcessingJob): Promise<any> {
-    const photoProcessingJobData = job.data;
-    const processingResult = await this.processingPipeline.execute(
-      photoProcessingJobData,
-    );
+  private async processJob(jobData: any): Promise<any> {
+    const normalized = {
+      photoId: jobData.photoId,
+      userId: jobData.userId,
+      originalFileKey: jobData.filepath || jobData.originalFileKey,
+      mimeType: jobData.mimeType || "image/jpeg",
+      metadata: jobData.metadata || {},
+    };
+    const processingResult = await this.processingPipeline.execute(normalized);
     return processingResult;
   }
 
   public async stop(): Promise<void> {
     console.log("Worker Service stopping...");
-    if (this.worker) {
-      await this.worker.close();
-    }
-    await this.jobQueue.disconnect();
-    await this.storage.disconnect();
+    await this.jobQueue.shutdown?.();
     await this.eventBus.disconnect();
     console.log("Worker Service stopped.");
   }
