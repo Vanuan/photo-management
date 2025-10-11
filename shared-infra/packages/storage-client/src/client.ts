@@ -422,19 +422,14 @@ export class StorageClient {
 
   async healthCheck(): Promise<any> {
     try {
-      const response = await this.httpClient.get('/api/v1/health', { timeout: 5000 });
+      const response = await this.httpClient.get('/health', { timeout: 5000 });
 
-      // Validate response structure
       if (!response.data || typeof response.data !== 'object') {
         throw new Error('Invalid health check response structure');
       }
 
-      if (!response.data.success) {
-        throw new Error('Health check reported failure');
-      }
-
-      if (!response.data.data) {
-        throw new Error('Health check missing data');
+      if (!('success' in response.data)) {
+        throw new Error('Invalid health check envelope');
       }
 
       return response.data.data;
