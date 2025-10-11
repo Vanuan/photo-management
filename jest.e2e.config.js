@@ -2,7 +2,7 @@ module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   rootDir: '.',
-  testMatch: ['**/tests/integration/**/*.test.ts'],
+  testMatch: ['**/tests/e2e/**/*.test.ts', '**/tests/integration/**/*.test.ts'],
   testTimeout: 180000, // 3 minute default timeout for E2E tests
   verbose: true,
   forceExit: true,
