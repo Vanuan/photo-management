@@ -53,6 +53,9 @@ const CameraView: React.FC<CameraViewProps> = ({
   const [isCapturing, setIsCapturing] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
 
+  // Video dimensions state
+  const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number } | null>(null);
+
   // Callback ref: ensures we attach the stream to the video as soon as the element mounts.
   const setVideoElement = useCallback((el: HTMLVideoElement | null) => {
     videoRef.current = el;
@@ -98,20 +101,20 @@ const CameraView: React.FC<CameraViewProps> = ({
 
       mediaStreamRef.current = stream;
 
-      if (videoRef.current) {
-        try {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play().catch((err) => {
-            // Non-fatal: playback might require user interaction on some browsers.
-            console.warn("[Camera] play() failed:", err);
-          });
-        } catch (err) {
-          console.warn("[Camera] attach/play failed:", err);
-        }
-      } else {
-        // Video element not mounted yet; callback ref will attach it when mounted.
-        console.log("[Camera] stream ready — will attach when <video> mounts");
-      }
+if (videoRef.current) {
+  try {
+    videoRef.current.srcObject = stream;
+    await videoRef.current.play().catch((err) => {
+      // Non-fatal: playback might require user interaction on some browsers.
+      console.warn("[Camera] play() failed:", err);
+    });
+  } catch (err) {
+    console.warn("[Camera] attach/play failed:", err);
+  }
+} else {
+  // Video element not mounted yet; callback ref will attach it when mounted.
+  console.log("[Camera] stream ready — will attach when <video> mounts");
+}
 
       setCameraStatus("granted");
     } catch (err) {
@@ -195,6 +198,35 @@ const CameraView: React.FC<CameraViewProps> = ({
     };
     // startCamera/stopCamera are stable (empty deps) so including them is fine for lint rules.
   }, [startCamera, stopCamera]);
+
+  // Track video dimensions
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleLoadedData = () => {
+      if (video.videoWidth && video.videoHeight) {
+        setVideoDimensions({
+          width: video.videoWidth,
+          height: video.videoHeight
+        });
+      }
+    };
+
+    video.addEventListener('loadeddata', handleLoadedData);
+
+    // If video is already loaded, get dimensions immediately
+    if (video.readyState >= 2 && video.videoWidth && video.videoHeight) {
+      setVideoDimensions({
+        width: video.videoWidth,
+        height: video.videoHeight
+      });
+    }
+
+    return () => {
+      video.removeEventListener('loadeddata', handleLoadedData);
+    };
+  }, []);
 
   // Create and revoke object URL for captured blob safely
   useEffect(() => {
@@ -342,7 +374,7 @@ const CameraView: React.FC<CameraViewProps> = ({
   }
 
   return (
-    <div className="relative w-full h-full bg-black flex items-center justify-center">
+    <div className="relative w-full h-full bg-black flex items-center justify-center overflow-hidden">
       {capturedImageUrl ? (
         <div className="relative w-full h-full flex flex-col items-center justify-center">
           <>
@@ -401,14 +433,16 @@ const CameraView: React.FC<CameraViewProps> = ({
         </div>
       ) : (
         <>
-          <video
-            ref={setVideoElement}
-            playsInline
-            muted
-            autoPlay
-            className="w-full h-full object-cover bg-black"
-          />
-          <canvas ref={canvasRef} className="hidden" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <video
+              ref={setVideoElement}
+              playsInline
+              muted
+              autoPlay
+              className="max-w-full max-h-full object-contain bg-black"
+            />
+            <canvas ref={canvasRef} className="hidden" />
+          </div>
           <CameraControls
             wsConnected={wsConnected}
             onCapture={capturePhoto}
@@ -419,6 +453,8 @@ const CameraView: React.FC<CameraViewProps> = ({
             lastThumbnail={lastThumbnail}
             uploadQueue={uploadQueue}
             pendingUploads={pendingUploads}
+            videoWidth={videoDimensions?.width}
+            videoHeight={videoDimensions?.height}
           />
         </>
       )}
