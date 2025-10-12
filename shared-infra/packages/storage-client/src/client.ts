@@ -421,22 +421,26 @@ export class StorageClient {
   }
 
   async healthCheck(): Promise<any> {
-    try {
-      const response = await this.httpClient.get('/health', { timeout: 5000 });
+    const tryPaths = ['/api/v1/health', '/health'];
+    let lastError: any = null;
 
-      if (!response.data || typeof response.data !== 'object') {
-        throw new Error('Invalid health check response structure');
+    for (const path of tryPaths) {
+      try {
+        const response = await this.httpClient.get(path, { timeout: 5000 });
+        if (!response || typeof response.data !== 'object') {
+          throw new Error('Invalid health check response');
+        }
+        // Accept either envelope { success, data } or direct data
+        const data = 'data' in response.data ? response.data.data : response.data;
+        return data;
+      } catch (error) {
+        lastError = error;
+        // Try next path
       }
-
-      if (!('success' in response.data)) {
-        throw new Error('Invalid health check envelope');
-      }
-
-      return response.data.data;
-    } catch (error) {
-      this.logger.error('Health check failed', { error: (error as Error).message });
-      throw this.handleError(error, 'Health check failed');
     }
+
+    this.logger.error('Health check failed', { error: String(lastError) });
+    throw this.handleError(lastError, 'Health check failed');
   }
 
   async clearCache(): Promise<void> {
