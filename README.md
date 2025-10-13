@@ -82,7 +82,7 @@ The photo management system is fully containerized and can be deployed using Doc
 - At least 4GB RAM available
 - 10GB free disk space
 
-### Quick Start
+### Quick Start (Development)
 
 1. **Clone the repository:**
    ```bash
@@ -111,8 +111,47 @@ The photo management system is fully containerized and can be deployed using Doc
    - API Gateway: http://localhost:3000
    - MinIO Console: http://localhost:9001 (admin/minioadmin)
 
+### Production Deployment
+
+For production deployments, the system uses an Nginx reverse proxy as a single entry point:
+
+1. **Build and start production services:**
+   ```bash
+   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+   ```
+
+2. **Initialize MinIO buckets (one-time setup):**
+   ```bash
+   docker-compose --profile setup up mc
+   ```
+
+3. **Access the application:**
+   - Application: http://localhost (all services unified through Nginx)
+   - Health check: http://localhost/health
+
+**Production Features:**
+- ✅ Nginx reverse proxy as single entry point
+- ✅ Frontend served as static files (no separate container)
+- ✅ API proxying through `/api` prefix
+- ✅ WebSocket proxying through `/socket.io`
+- ✅ Security headers (CSP, HSTS, X-Frame-Options)
+- ✅ Rate limiting (100 req/s API, 10 req/s uploads)
+- ✅ Gzip compression
+- ✅ CORS configuration
+- ✅ Internal services hidden from external access
+- ✅ 5 worker replicas for increased processing capacity
+
+**HTTPS/SSL Setup:**
+
+For production with HTTPS, see [nginx/README.md](nginx/README.md) for detailed instructions on:
+- Obtaining Let's Encrypt certificates
+- Configuring SSL/TLS
+- HTTPS redirect and HSTS
+- WebSocket over WSS
+
 ### Service Architecture
 
+**Development Mode:**
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   Frontend      │    │  API Gateway    │    │     Worker      │
@@ -132,14 +171,47 @@ The photo management system is fully containerized and can be deployed using Doc
                     └─────────────────┘
 ```
 
+**Production Mode (with Nginx):**
+```
+                    ┌─────────────────┐
+                    │   Nginx :80     │
+                    │ Reverse Proxy   │
+                    │  (+ Frontend)   │
+                    └────────┬────────┘
+                             │
+                    ┌────────┴────────┐
+                    │                 │
+         ┌──────────▼─────┐    ┌─────▼──────────┐
+         │  API Gateway   │    │    Worker×5    │
+         │   (internal)   │    │   (internal)   │
+         └────────┬───────┘    └────────┬───────┘
+                  │                     │
+                  └──────────┬──────────┘
+                             │
+                ┌────────────▼────────────┐
+                │  Infrastructure Services │
+                │  (Redis, MinIO, SQLite) │
+                │      (internal)         │
+                └─────────────────────────┘
+```
+
 ### Services
 
+**Development Mode:**
+- **Frontend** (`frontend:5173`): React development server
+- **API Gateway** (`api-gateway:3000`): REST API and WebSocket server
+- **Worker** (`worker`): Photo processing pipeline (3 replicas)
 - **Redis** (`redis:6379`): Job queue and event bus backend
 - **MinIO** (`minio:9000/9001`): Object storage for photos and thumbnails
 - **Storage Service** (`storage-service:3001`): Metadata and database operations
-- **API Gateway** (`api-gateway:3000`): REST API and WebSocket server
-- **Worker** (`worker`): Photo processing pipeline (3 replicas)
-- **Frontend** (`frontend:5173`): React web application
+
+**Production Mode:**
+- **Nginx** (`nginx:80/443`): Reverse proxy + static frontend hosting
+- **API Gateway** (internal): REST API and WebSocket server
+- **Worker** (internal): Photo processing pipeline (5 replicas)
+- **Redis** (internal): Job queue and event bus backend
+- **MinIO** (`minio:9000`): Object storage (console hidden)
+- **Storage Service** (internal): Metadata and database operations
 
 ### Development Commands
 
@@ -161,6 +233,38 @@ docker-compose up -d --scale worker=5
 
 # Clean up (removes volumes)
 docker-compose down -v
+```
+
+### Production Commands
+
+```bash
+# Start production stack
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# View logs (production)
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs -f
+
+# Rebuild nginx after config changes
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml build nginx
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d nginx
+
+# Stop production stack
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml down
+
+# Scale workers (production has 5 by default)
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --scale worker=10
+
+# Check nginx config syntax
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec nginx nginx -t
+
+# Reload nginx config without downtime
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec nginx nginx -s reload
+
+# View nginx access logs
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec nginx tail -f /var/log/nginx/access.log
+
+# View nginx error logs
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec nginx tail -f /var/log/nginx/error.log
 ```
 
 ### Health Checks
@@ -204,7 +308,7 @@ OPTIMIZATION_QUALITY=80
 
 ### Troubleshooting
 
-**Common Issues:**
+**Common Issues (Development):**
 
 1. **Port conflicts**: Ensure ports 3000, 3001, 5173, 6379, 9000, 9001 are available
 
@@ -223,16 +327,48 @@ OPTIMIZATION_QUALITY=80
    curl http://localhost:3000/health
    ```
 
+**Common Issues (Production):**
+
+1. **Nginx fails to start**: Check configuration syntax
+   ```bash
+   docker run --rm -v $(pwd)/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro nginx:1.25-alpine nginx -t
+   ```
+
+2. **API requests return 502 Bad Gateway**: Verify api-gateway is running
+   ```bash
+   docker-compose -f docker-compose.yml -f docker-compose.prod.yml ps api-gateway
+   docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs api-gateway
+   ```
+
+3. **WebSocket connections fail**: Check Socket.IO endpoint
+   ```bash
+   curl -i http://localhost/socket.io/
+   # Should return 400 with "Session ID unknown" (Socket.IO is working)
+   ```
+
+4. **Rate limiting too strict**: Adjust limits in nginx/nginx.conf:
+   ```nginx
+   limit_req_zone $binary_remote_addr zone=api_limit:10m rate=100r/s;
+   ```
+
+5. **CORS errors**: Verify origin in nginx configuration matches your domain
+
 **Debug Mode:**
 ```bash
-# Run with debug logging
+# Run with debug logging (development)
 docker-compose up
+
+# Run production stack in foreground
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
 
 # Check container resource usage
 docker stats
 
 # Inspect container logs
 docker-compose logs worker
+
+# Check nginx configuration
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml exec nginx cat /etc/nginx/conf.d/default.conf
 ```
 
 ---

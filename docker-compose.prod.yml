@@ -1,0 +1,101 @@
+# Production overrides for docker-compose.yml
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Or with profile: docker-compose --profile production up -d
+
+version: '3.8'
+
+services:
+  # Production Nginx reverse proxy
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    container_name: photo-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    networks:
+      - photo-management-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    profiles:
+      - production
+
+  # Redis - no changes, inherits from base
+  redis:
+    restart: always
+
+  # MinIO - production settings
+  minio:
+    restart: always
+    # Hide console port in production (only expose API)
+    ports:
+      - "9000:9000"
+
+  # Storage Service - production mode
+  storage-service:
+    build:
+      context: ./shared-infra
+      dockerfile: packages/storage-service/Dockerfile
+      target: production
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+    # Remove port exposure - only accessible via internal network
+    ports: []
+    volumes:
+      # In production, only mount data volume (not source code)
+      - sqlite_data:/app/data
+    restart: always
+
+  # API Gateway - production mode
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+    # Remove port exposure - only accessible via nginx
+    ports: []
+    restart: always
+
+  # Worker - production mode with more replicas
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+    deploy:
+      replicas: 5
+    restart: always
+
+  # Frontend - disabled in production (nginx serves static files)
+  frontend:
+    profiles:
+      - disabled
+
+  # MinIO client - disabled in production
+  mc:
+    profiles:
+      - setup
+
+# Volumes remain the same as base configuration
+volumes:
+  redis_data:
+  minio_data:
+  sqlite_data:
+
+networks:
+  photo-management-network:
+    driver: bridge
