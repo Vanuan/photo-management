@@ -1,0 +1,15 @@
+{
+  "name": "photo-management-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "api-gateway",
+    "shared-infra/*",
+    "worker"
+  ],
+  "scripts": {
+    "install-all": "npm install",
+    "build-all": "npm run build -ws",
+    "type-check-all": "npm run type-check -ws"
+  }
+}

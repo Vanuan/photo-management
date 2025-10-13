@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  # Use nginx as entry point
+  nginx:
+    profiles: ["production"]
+
+  # Don't expose individual service ports
+  api-gateway:
+    ports: []
+    expose:
+      - "3000"
+
+  storage-service:
+    ports: []
+    expose:
+      - "3001"
+
+  # Hide MinIO API port, keep only console (optional)
+  minio:
+    ports:
+      - "9001:9001"

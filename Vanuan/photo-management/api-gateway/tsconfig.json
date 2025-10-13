@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "es2021",
+    "module": "commonjs",
+    "lib": ["es2021", "dom"],
+    "outDir": "./dist",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@shared-infra/event-bus": ["../shared-infra/packages/event-bus/src"],
+      "@shared-infra/job-queue": ["../shared-infra/packages/job-queue/src"],
+      "@shared-infra/storage-client": [
+        "../shared-infra/packages/storage-client/src"
+      ],
+      "@shared-infra/storage-core": [
+        "../shared-infra/packages/storage-core/src"
+      ]
+    }
+  },
+  "include": ["./index.ts", "./src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}
