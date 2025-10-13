@@ -18,7 +18,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^4.19.2",
-    "multer": "^1.4.5-lts.1",
+    "multer": "^2.0.2",
     "uuid": "^9.0.1",
     "@shared-infra/event-bus": "*",
     "@shared-infra/job-queue": "*",
