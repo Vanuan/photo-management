@@ -71,6 +71,172 @@ The two subsystems **never communicate directly**. They only interact through:
 
 ---
 
+## 🐳 Docker Setup
+
+The photo management system is fully containerized and can be deployed using Docker Compose. This setup includes all necessary infrastructure services and application components.
+
+### Prerequisites
+
+- Docker Engine 20.10+
+- Docker Compose 2.0+
+- At least 4GB RAM available
+- 10GB free disk space
+
+### Quick Start
+
+1. **Clone the repository:**
+   ```bash
+   git clone <repository-url>
+   cd photo-management
+   ```
+
+2. **Copy environment configuration:**
+   ```bash
+   cp .env.example .env
+   # Edit .env if needed for custom configuration
+   ```
+
+3. **Start all services:**
+   ```bash
+   docker-compose up -d
+   ```
+
+4. **Initialize MinIO buckets (one-time setup):**
+   ```bash
+   docker-compose --profile setup up mc
+   ```
+
+5. **Access the application:**
+   - Frontend: http://localhost:5173
+   - API Gateway: http://localhost:3000
+   - MinIO Console: http://localhost:9001 (admin/minioadmin)
+
+### Service Architecture
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Frontend      │    │  API Gateway    │    │     Worker      │
+│   (React)       │◄──►│  (Node.js)      │    │   (Node.js)     │
+│   :5173         │    │   :3000         │    │                 │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 │
+                    ┌─────────────────┐
+                    │ Infrastructure  │
+                    │   Services      │
+                    ├─────────────────┤
+                    │ Redis :6379     │
+                    │ MinIO :9000/1   │
+                    │ Storage :3001   │
+                    └─────────────────┘
+```
+
+### Services
+
+- **Redis** (`redis:6379`): Job queue and event bus backend
+- **MinIO** (`minio:9000/9001`): Object storage for photos and thumbnails
+- **Storage Service** (`storage-service:3001`): Metadata and database operations
+- **API Gateway** (`api-gateway:3000`): REST API and WebSocket server
+- **Worker** (`worker`): Photo processing pipeline (3 replicas)
+- **Frontend** (`frontend:5173`): React web application
+
+### Development Commands
+
+```bash
+# View logs
+docker-compose logs -f
+
+# View specific service logs
+docker-compose logs -f api-gateway
+
+# Stop all services
+docker-compose down
+
+# Rebuild and restart a service
+docker-compose up -d --build api-gateway
+
+# Scale workers
+docker-compose up -d --scale worker=5
+
+# Clean up (removes volumes)
+docker-compose down -v
+```
+
+### Health Checks
+
+All services include health checks. Use these endpoints to verify service status:
+
+- API Gateway: `GET /health`
+- Storage Service: `GET /health`
+- Redis: `redis-cli ping` (inside container)
+- MinIO: `GET /minio/health/live`
+
+### Volumes
+
+Persistent data is stored in named volumes:
+- `redis_data`: Redis persistence
+- `minio_data`: MinIO object storage
+- `sqlite_data`: SQLite database
+
+### Environment Configuration
+
+Key environment variables (see `.env.example`):
+
+```bash
+# Redis
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+# MinIO
+MINIO_ENDPOINT=minio
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+
+# API Gateway
+PORT=3000
+STORAGE_SERVICE_URL=http://storage-service:3001
+
+# Worker
+THUMBNAIL_SIZES=150,300,600
+OPTIMIZATION_QUALITY=80
+```
+
+### Troubleshooting
+
+**Common Issues:**
+
+1. **Port conflicts**: Ensure ports 3000, 3001, 5173, 6379, 9000, 9001 are available
+
+2. **MinIO bucket creation fails**:
+   ```bash
+   docker-compose --profile setup up mc
+   ```
+
+3. **Worker not processing jobs**: Check Redis connectivity
+   ```bash
+   docker-compose exec redis redis-cli ping
+   ```
+
+4. **Frontend WebSocket connection fails**: Verify API Gateway is healthy
+   ```bash
+   curl http://localhost:3000/health
+   ```
+
+**Debug Mode:**
+```bash
+# Run with debug logging
+docker-compose up
+
+# Check container resource usage
+docker stats
+
+# Inspect container logs
+docker-compose logs worker
+```
+
+---
+
 ## 🔄 Data Flow: Photo Upload to Processing
 
 ### Sequence Diagram
