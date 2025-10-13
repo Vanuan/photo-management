@@ -55,7 +55,7 @@
     "@types/supertest": "^6.0.2",
     "eslint": "^8.55.0",
     "@typescript-eslint/eslint-plugin": "^8.46.1",
-    "@typescript-eslint/parser": "^6.14.0"
+    "@typescript-eslint/parser": "^8.46.1"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"
