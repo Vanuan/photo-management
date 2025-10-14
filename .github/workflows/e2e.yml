@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    - cron: '0 2 * * *'
+    - cron: "0 2 * * *"
 
 jobs:
   e2e:
@@ -20,7 +20,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Install dependencies (root)
         run: npm install
@@ -89,7 +89,7 @@ jobs:
 
       - name: Start API Gateway
         run: |
-          nohup node api-gateway/dist/index.js > api-gateway.log 2>&1 &
+          nohup node api-gateway/dist/api-gateway/index.js > api-gateway.log 2>&1 &
           echo $! > api-gateway.pid
         env:
           NODE_ENV: test
@@ -105,7 +105,7 @@ jobs:
 
       - name: Start Worker
         run: |
-          nohup node worker/dist/index.js > worker.log 2>&1 &
+          nohup node worker/dist/worker/src/index.js > worker.log 2>&1 &
           echo $! > worker.pid
         env:
           NODE_ENV: test

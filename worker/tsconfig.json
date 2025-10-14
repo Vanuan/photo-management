@@ -10,7 +10,13 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "types": ["node"]
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@shared-infra/event-bus": ["../shared-infra/packages/event-bus/src"],
+      "@shared-infra/job-queue": ["../shared-infra/packages/job-queue/src"],
+      "@shared-infra/storage-client": ["../shared-infra/packages/storage-client/src"]
+    }
   },
   "include": ["./src/**/*.ts", "./index.ts"],
   "exclude": ["node_modules", "dist"]
