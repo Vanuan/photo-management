@@ -147,12 +147,15 @@ async function clearRedis(): Promise<void> {
  */
 async function clearMinIO(): Promise<void> {
   console.log("Clearing MinIO buckets...");
+  const accessKey = process.env.MINIO_ACCESS_KEY || "minioadmin";
+  const secretKey = process.env.MINIO_SECRET_KEY || "minioadmin";
+
   const client = new MinioClient({
     endPoint: SERVICES.minio.host,
     port: SERVICES.minio.port,
     useSSL: false,
-    accessKey: process.env.MINIO_ACCESS_KEY || "minioadmin",
-    secretKey: process.env.MINIO_SECRET_KEY || "minioadmin",
+    accessKey,
+    secretKey,
   });
 
   const buckets = ["photos", "thumbnails"];
@@ -191,19 +194,59 @@ async function clearDatabase(): Promise<void> {
   try {
     // Delete all photos via API
     // Note: This is a simple approach - in production you might have a dedicated reset endpoint
-    const response = await axios.get(`${SERVICES.storageService}/photos`, {
-      timeout: 5000,
-    });
+    const response = await axios.post(
+      `${SERVICES.storageService}/api/v1/photos/search`,
+      {}, // Empty search query to get all photos
+      {
+        timeout: 5000,
+      },
+    );
 
-    if (response.data && response.data.photos) {
-      for (const photo of response.data.photos) {
-        await axios.delete(`${SERVICES.storageService}/photos/${photo.id}`);
+    // Log the actual response structure for debugging
+    console.log(
+      "Search API response structure:",
+      JSON.stringify(response.data, null, 2),
+    );
+
+    // Based on the API response structure from the storage service
+    // Response format: { success: true, data: SearchResult, meta: {...} }
+    // Where SearchResult has { photos: Photo[], total: number, page: {...}, searchTime: number }
+    if (response.data && response.data.success && response.data.data) {
+      const photos = response.data.data.photos;
+      if (Array.isArray(photos)) {
+        console.log(`Found ${photos.length} photos to delete`);
+        for (const photo of photos) {
+          try {
+            await axios.delete(
+              `${SERVICES.storageService}/api/v1/photos/${photo.id}`,
+            );
+            console.log(`Deleted photo ${photo.id}`);
+          } catch (deleteError) {
+            console.warn(
+              `Failed to delete photo ${photo.id}:`,
+              deleteError.message,
+            );
+          }
+        }
+      } else {
+        console.log("No photos array found in response data");
+      }
+    } else {
+      console.log("Unexpected response structure from search API");
+      if (response.data) {
+        console.log("Response keys:", Object.keys(response.data));
       }
     }
 
     console.log("✓ Database cleared");
   } catch (error) {
-    console.warn("Failed to clear database:", error);
+    console.warn("Failed to clear database:", error.message);
+    if (error.response) {
+      console.warn(
+        "Response data:",
+        JSON.stringify(error.response.data, null, 2),
+      );
+    }
   }
 }
 
