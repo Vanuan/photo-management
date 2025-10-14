@@ -1,10 +1,10 @@
-import sharp from 'sharp';
-import { randomBytes } from 'crypto';
+import sharp from "sharp";
+import { randomBytes } from "crypto";
 
 export interface TestImageOptions {
   width?: number;
   height?: number;
-  format?: 'jpeg' | 'png' | 'webp';
+  format?: "jpeg" | "png" | "webp";
   quality?: number;
   text?: string;
 }
@@ -15,9 +15,9 @@ export interface TestImageOptions {
 export async function generateTestImage(
   width: number = 800,
   height: number = 600,
-  options: TestImageOptions = {}
+  options: TestImageOptions = {},
 ): Promise<Buffer> {
-  const format = options.format || 'jpeg';
+  const format = options.format || "jpeg";
   const quality = options.quality || 80;
 
   // Create a colorful gradient image
@@ -30,17 +30,17 @@ export async function generateTestImage(
         </linearGradient>
       </defs>
       <rect width="${width}" height="${height}" fill="url(#grad)" />
-      ${options.text ? `<text x="50%" y="50%" text-anchor="middle" font-size="48" fill="white">${options.text}</text>` : ''}
+      ${options.text ? `<text x="50%" y="50%" text-anchor="middle" font-size="48" fill="white">${options.text}</text>` : ""}
     </svg>
   `;
 
   let image = sharp(Buffer.from(svg));
 
-  if (format === 'jpeg') {
+  if (format === "jpeg") {
     image = image.jpeg({ quality });
-  } else if (format === 'png') {
+  } else if (format === "png") {
     image = image.png({ quality });
-  } else if (format === 'webp') {
+  } else if (format === "webp") {
     image = image.webp({ quality });
   }
 
@@ -53,10 +53,10 @@ export async function generateTestImage(
 export async function generateTestImages(
   count: number,
   width: number = 800,
-  height: number = 600
+  height: number = 600,
 ): Promise<Buffer[]> {
   const promises = Array.from({ length: count }, (_, i) =>
-    generateTestImage(width, height, { text: `Image ${i + 1}` })
+    generateTestImage(width, height, { text: `Image ${i + 1}` }),
   );
   return await Promise.all(promises);
 }
@@ -65,19 +65,19 @@ export async function generateTestImages(
  * Generate a large test image
  */
 export async function generateLargeTestImage(
-  targetSizeMB: number = 10
+  targetSizeMB: number = 10,
 ): Promise<Buffer> {
   // Start with a high-resolution image
   const width = 4000;
   const height = 3000;
-  
+
   let quality = 100;
   let buffer = await generateTestImage(width, height, { quality });
 
   // If we need a larger file, add more detail or reduce compression
   while (buffer.length < targetSizeMB * 1024 * 1024 && quality > 50) {
     quality -= 10;
-    buffer = await generateTestImage(width, height, { quality, format: 'png' });
+    buffer = await generateTestImage(width, height, { quality, format: "png" });
   }
 
   return buffer;
@@ -87,7 +87,7 @@ export async function generateLargeTestImage(
  * Generate a corrupt image (invalid data)
  */
 export function generateCorruptImage(): Buffer {
-  return Buffer.from('This is not a valid image file!');
+  return Buffer.from("This is not a valid image file!");
 }
 
 /**
@@ -98,19 +98,19 @@ export async function generateImageWithWrongExtension(): Promise<{
   filename: string;
   actualType: string;
 }> {
-  const buffer = await generateTestImage(800, 600, { format: 'jpeg' });
+  const buffer = await generateTestImage(800, 600, { format: "jpeg" });
   return {
     buffer,
-    filename: 'photo.png', // Wrong extension
-    actualType: 'image/jpeg',
+    filename: "photo.png", // Wrong extension
+    actualType: "image/jpeg",
   };
 }
 
 /**
  * Generate test user IDs
  */
-export function generateTestUserId(prefix: string = 'test-user'): string {
-  return `${prefix}-${randomBytes(8).toString('hex')}`;
+export function generateTestUserId(prefix: string = "test-user"): string {
+  return `${prefix}-${randomBytes(8).toString("hex")}`;
 }
 
 /**
@@ -126,15 +126,15 @@ export interface TestPhotoMetadata {
 
 export async function generateTestPhotoData(
   userId?: string,
-  filename?: string
+  filename?: string,
 ): Promise<TestPhotoMetadata> {
   const buffer = await generateTestImage();
-  
+
   return {
     userId: userId || generateTestUserId(),
     filename: filename || `test-photo-${Date.now()}.jpg`,
     buffer,
-    mimeType: 'image/jpeg',
+    mimeType: "image/jpeg",
     size: buffer.length,
   };
 }
@@ -144,10 +144,10 @@ export async function generateTestPhotoData(
  */
 export async function generateTestPhotos(
   count: number,
-  userId?: string
+  userId?: string,
 ): Promise<TestPhotoMetadata[]> {
   const promises = Array.from({ length: count }, (_, i) =>
-    generateTestPhotoData(userId, `test-photo-${i + 1}-${Date.now()}.jpg`)
+    generateTestPhotoData(userId, `test-photo-${i + 1}-${Date.now()}.jpg`),
   );
   return await Promise.all(promises);
 }
@@ -164,12 +164,16 @@ function randomInt(min: number, max: number): number {
  */
 export async function createTestPhotoBlob(
   width: number = 800,
-  height: number = 600
+  height: number = 600,
 ): Promise<{ blob: Blob; filename: string }> {
   const buffer = await generateTestImage(width, height);
-  const blob = new Blob([buffer], { type: 'image/jpeg' });
+  const arrayBuffer = buffer.buffer.slice(
+    buffer.byteOffset,
+    buffer.byteOffset + buffer.byteLength,
+  );
+  const blob = new Blob([arrayBuffer], { type: "image/jpeg" });
   const filename = `photo-${Date.now()}.jpg`;
-  
+
   return { blob, filename };
 }
 
@@ -177,7 +181,7 @@ export async function createTestPhotoBlob(
  * Get image dimensions
  */
 export async function getImageDimensions(
-  buffer: Buffer
+  buffer: Buffer,
 ): Promise<{ width: number; height: number }> {
   const metadata = await sharp(buffer).metadata();
   return {
