@@ -4,6 +4,7 @@
   "private": true,
   "workspaces": [
     "api-gateway",
+    "shared-infra",
     "shared-infra/packages/*",
     "worker",
     "frontend"
