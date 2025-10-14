@@ -167,11 +167,9 @@ export async function createTestPhotoBlob(
   height: number = 600,
 ): Promise<{ blob: Blob; filename: string }> {
   const buffer = await generateTestImage(width, height);
-  const arrayBuffer = buffer.buffer.slice(
-    buffer.byteOffset,
-    buffer.byteOffset + buffer.byteLength,
-  );
-  const blob = new Blob([arrayBuffer], { type: "image/jpeg" });
+  // Convert Buffer to Uint8Array to ensure compatibility with Blob
+  const uint8Array = new Uint8Array(buffer);
+  const blob = new Blob([uint8Array], { type: "image/jpeg" });
   const filename = `photo-${Date.now()}.jpg`;
 
   return { blob, filename };
