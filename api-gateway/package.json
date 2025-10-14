@@ -15,14 +15,15 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@shared-infra/event-bus": "*",
+    "@shared-infra/job-queue": "*",
+    "@shared-infra/storage-client": "*",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^4.19.2",
     "multer": "^2.0.2",
-    "uuid": "^9.0.1",
-    "@shared-infra/event-bus": "*",
-    "@shared-infra/job-queue": "*",
-    "@shared-infra/storage-client": "*"
+    "socket.io": "^4.8.1",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
