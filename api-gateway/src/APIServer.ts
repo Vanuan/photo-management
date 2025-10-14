@@ -421,6 +421,7 @@ export class APIServer {
   ): Promise<void> {
     try {
       if (!req.file) {
+        console.log("No file provided in request");
         // WebSocket error notification
         const clientId = req.body.clientId || req.headers['x-client-id'];
         if (clientId) {
@@ -456,9 +457,16 @@ export class APIServer {
         // We pass enough info for it to create the Photo record
       };
 
+      console.log("Attempting to store photo using StorageClient...");
       // Store the photo using StorageClient
-      const storedPhotoResult: PhotoResult =
-        await this.storageClient.storePhoto(buffer, storePhotoOptions);
+      let storedPhotoResult: PhotoResult;
+      try {
+        storedPhotoResult = await this.storageClient.storePhoto(buffer, storePhotoOptions);
+        console.log("Photo stored successfully:", storedPhotoResult);
+      } catch (error) {
+        console.error("Failed to store photo in StorageClient:", error);
+        throw new Error(`StorageClient error: ${error.message}`);
+      }
 
       if (!storedPhotoResult.id) {
         throw new Error("Failed to store photo, no id returned.");
@@ -481,14 +489,20 @@ export class APIServer {
         ], // Example operations
       };
 
-      await this.jobCoordinatorClient.enqueueJob(
-        "photo-processing",
-        photoProcessingJob,
-        { jobId: photoProcessingJob.id },
-      );
-      console.log(
-        `Enqueued photo processing job for photoId: ${photoProcessingJob.photoId}`,
-      );
+      console.log("Attempting to enqueue photo processing job...");
+      try {
+        await this.jobCoordinatorClient.enqueueJob(
+          "photo-processing",
+          photoProcessingJob,
+          { jobId: photoProcessingJob.id },
+        );
+        console.log(
+          `Enqueued photo processing job for photoId: ${photoProcessingJob.photoId}`,
+        );
+      } catch (error) {
+        console.error("Failed to enqueue photo processing job:", error);
+        throw new Error(`Job queue error: ${error.message}`);
+      }
 
       // WebSocket notification for upload
       if (clientId) {
@@ -502,16 +516,22 @@ export class APIServer {
       }
 
       // Publish photo.uploaded event
-      await this.eventBusClient.publish("photo.uploaded", {
-        photoId: photoProcessingJob.photoId,
-        userId: photoProcessingJob.userId,
-        filename: photoProcessingJob.filename,
-        uploadTimestamp: photoProcessingJob.uploadTimestamp,
-        status: "pending", // Event status
-      });
-      console.log(
-        `Published photo.uploaded event for photoId: ${photoProcessingJob.photoId}`,
-      );
+      console.log("Attempting to publish photo.uploaded event...");
+      try {
+        await this.eventBusClient.publish("photo.uploaded", {
+          photoId: photoProcessingJob.photoId,
+          userId: photoProcessingJob.userId,
+          filename: photoProcessingJob.filename,
+          uploadTimestamp: photoProcessingJob.uploadTimestamp,
+          status: "pending", // Event status
+        });
+        console.log(
+          `Published photo.uploaded event for photoId: ${photoProcessingJob.photoId}`,
+        );
+      } catch (error) {
+        console.error("Failed to publish photo.uploaded event:", error);
+        throw new Error(`Event bus error: ${error.message}`);
+      }
 
       res.status(202).json({
         message: "Photo uploaded and being processed",
@@ -525,6 +545,7 @@ export class APIServer {
       });
     } catch (error: any) {
       console.error("Error handling photo upload:", error);
+      console.error("Error stack:", error.stack);
 
       // WebSocket error notification
       const clientId = req.body.clientId || req.headers['x-client-id'];
