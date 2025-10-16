@@ -465,7 +465,11 @@ export class APIServer {
         console.log("Photo stored successfully:", storedPhotoResult);
       } catch (error) {
         console.error("Failed to store photo in StorageClient:", error);
-        throw new Error(`StorageClient error: ${error.message}`);
+        if (error instanceof Error) {
+          throw new Error(`StorageClient error: ${error.message}`);
+        } else {
+          throw new Error(`StorageClient error: ${String(error)}`);
+        }
       }
 
       if (!storedPhotoResult.id) {
@@ -501,7 +505,11 @@ export class APIServer {
         );
       } catch (error) {
         console.error("Failed to enqueue photo processing job:", error);
-        throw new Error(`Job queue error: ${error.message}`);
+        if (error instanceof Error) {
+          throw new Error(`Job queue error: ${error.message}`);
+        } else {
+          throw new Error(`Job queue error: ${String(error)}`);
+        }
       }
 
       // WebSocket notification for upload
@@ -530,7 +538,11 @@ export class APIServer {
         );
       } catch (error) {
         console.error("Failed to publish photo.uploaded event:", error);
-        throw new Error(`Event bus error: ${error.message}`);
+        if (error instanceof Error) {
+          throw new Error(`Event bus error: ${error.message}`);
+        } else {
+          throw new Error(`Event bus error: ${String(error)}`);
+        }
       }
 
       res.status(202).json({
