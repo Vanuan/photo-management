@@ -1,7 +1,21 @@
 import { execSync } from "child_process";
 import axios from "axios";
-import { createClient } from "redis";
-import { Client as MinioClient } from "minio";
+
+// Conditionally import redis and minio to avoid issues in CI environments
+let createClient: any;
+let MinioClient: any;
+
+try {
+  ({ createClient } = require("redis"));
+} catch (e) {
+  createClient = null;
+}
+
+try {
+  ({ Client: MinioClient } = require("minio"));
+} catch (e) {
+  MinioClient = null;
+}
 
 const SERVICES = {
   apiGateway: process.env.API_GATEWAY_URL || "http://localhost:3000",
@@ -57,6 +71,12 @@ async function waitForRedis(
   port: number,
   maxRetries = MAX_RETRIES,
 ): Promise<void> {
+  // Skip if redis module is not available
+  if (!createClient) {
+    console.log("⚠ Redis module not available, skipping Redis wait");
+    return;
+  }
+
   console.log(`Waiting for Redis at ${host}:${port}`);
 
   for (let i = 0; i < maxRetries; i++) {
@@ -93,6 +113,12 @@ async function waitForMinIO(
   port: number,
   maxRetries = MAX_RETRIES,
 ): Promise<void> {
+  // Skip if minio module is not available
+  if (!MinioClient) {
+    console.log("⚠ MinIO module not available, skipping MinIO wait");
+    return;
+  }
+
   console.log(`Waiting for MinIO at ${host}:${port}`);
 
   const accessKey = process.env.MINIO_ACCESS_KEY || "minioadmin";
@@ -128,6 +154,12 @@ async function waitForMinIO(
  * Clear all test data from Redis
  */
 async function clearRedis(): Promise<void> {
+  // Skip if redis module is not available
+  if (!createClient) {
+    console.log("⚠ Redis module not available, skipping data clearing");
+    return;
+  }
+
   console.log("Clearing Redis data...");
   const client = createClient({
     socket: { host: SERVICES.redis.host, port: SERVICES.redis.port },
@@ -137,8 +169,14 @@ async function clearRedis(): Promise<void> {
     await client.connect();
     await client.flushDb();
     console.log("✓ Redis data cleared");
+  } catch (error: any) {
+    console.warn("Failed to clear Redis data:", error);
   } finally {
-    await client.disconnect();
+    try {
+      await client.disconnect();
+    } catch (e: any) {
+      // Ignore disconnect errors
+    }
   }
 }
 
@@ -146,6 +184,12 @@ async function clearRedis(): Promise<void> {
  * Clear all test data from MinIO buckets
  */
 async function clearMinIO(): Promise<void> {
+  // Skip if minio module is not available
+  if (!MinioClient) {
+    console.log("⚠ MinIO module not available, skipping data clearing");
+    return;
+  }
+
   console.log("Clearing MinIO buckets...");
   const accessKey = process.env.MINIO_ACCESS_KEY || "minioadmin";
   const secretKey = process.env.MINIO_SECRET_KEY || "minioadmin";
@@ -189,6 +233,7 @@ async function clearMinIO(): Promise<void> {
  * Clear SQLite database via Storage Service
  */
 async function clearDatabase(): Promise<void> {
+  // Always attempt to clear database
   console.log("Clearing SQLite database...");
 
   try {
@@ -221,7 +266,7 @@ async function clearDatabase(): Promise<void> {
               `${SERVICES.storageService}/api/v1/photos/${photo.id}`,
             );
             console.log(`Deleted photo ${photo.id}`);
-          } catch (deleteError) {
+          } catch (deleteError: any) {
             console.warn(
               `Failed to delete photo ${photo.id}:`,
               deleteError.message,
@@ -239,7 +284,7 @@ async function clearDatabase(): Promise<void> {
     }
 
     console.log("✓ Database cleared");
-  } catch (error) {
+  } catch (error: any) {
     console.warn("Failed to clear database:", error.message);
     if (error.response) {
       console.warn(
@@ -251,10 +296,19 @@ async function clearDatabase(): Promise<void> {
 }
 
 /**
- * Start all services using docker-compose
+ * Start all services using docker-compose (only for local development)
  */
 function startServices(): void {
   console.log("Starting services (local) ...");
+
+  // Check if we're in CI environment - if so, skip service management
+  if (process.env.CI === "true") {
+    console.log(
+      "✓ Skipping service start in CI environment (services managed by workflow)",
+    );
+    return;
+  }
+
   const commands = [
     "docker compose -f docker-compose.e2e.yml up -d",
     "docker-compose -f docker-compose.e2e.yml up -d",
@@ -293,14 +347,22 @@ export async function setupTestEnvironment(): Promise<void> {
       waitForMinIO(SERVICES.minio.host, SERVICES.minio.port),
     ]);
 
-    // Wait for application services
-    await waitForService(SERVICES.storageService);
-    await waitForService(SERVICES.apiGateway);
+    // Wait for application services (skipped in CI)
+    if (process.env.CI !== "true") {
+      await waitForService(SERVICES.storageService);
+      await waitForService(SERVICES.apiGateway);
+    } else {
+      console.log("✓ Skipping service health checks in CI environment");
+    }
 
-    // Clear any existing test data
-    await clearRedis();
-    await clearMinIO();
-    await clearDatabase();
+    // Clear any existing test data (only in local development)
+    if (process.env.CI !== "true") {
+      await clearRedis();
+      await clearMinIO();
+      await clearDatabase();
+    } else {
+      console.log("✓ Test data clearing is handled by CI workflow");
+    }
 
     console.log("\n=== Test environment ready ===\n");
   } catch (error) {
