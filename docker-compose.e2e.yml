@@ -68,10 +68,10 @@ services:
   api-gateway:
     build:
       context: .
-      dockerfile: api-gateway/Dockerfile
+      dockerfile: api-gateway/Dockerfile.prod
     container_name: photo-mgmt-api-gateway
     ports:
-      - "3000:3000"
+      - "3002:3000"
     environment:
       - NODE_ENV=test
       - PORT=3000
@@ -85,8 +85,7 @@ services:
       - STORAGE_SERVICE_URL=http://storage-service:3001
       - LOG_LEVEL=debug
     volumes:
-      - ./api-gateway:/app
-      - /app/node_modules
+      - ./api-gateway:/app/api-gateway
     depends_on:
       redis:
         condition: service_healthy
@@ -95,7 +94,7 @@ services:
       minio-init:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -107,12 +106,12 @@ services:
   # Storage Service
   storage-service:
     build:
-      context: ./shared-infra
+      context: ./
       dockerfile: packages/storage-service/Dockerfile
       target: development
     container_name: photo-mgmt-storage-service
     ports:
-      - "3001:3001"
+      - "3003:3001"
     environment:
       - NODE_ENV=test
       - PORT=3001
@@ -129,7 +128,7 @@ services:
       - CACHE_MAX_SIZE=1000
       - LOG_LEVEL=debug
     volumes:
-      - ./shared-infra/packages:/app/packages
+      - ./packages:/app/packages
       - storage_data:/app/data
       - /app/packages/storage-core/node_modules
       - /app/packages/storage-service/node_modules
@@ -152,7 +151,7 @@ services:
   worker:
     build:
       context: .
-      dockerfile: worker/Dockerfile
+      dockerfile: worker/Dockerfile.dev
     container_name: photo-mgmt-worker
     environment:
       - NODE_ENV=test
@@ -168,8 +167,7 @@ services:
       - JOB_QUEUE_NAME=photo-processing
       - WORKER_CONCURRENCY=2
     volumes:
-      - ./worker:/app
-      - /app/node_modules
+      - ./worker:/app/worker
     depends_on:
       redis:
         condition: service_healthy

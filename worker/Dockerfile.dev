@@ -1,0 +1,28 @@
+# Development Dockerfile for Worker Service
+FROM node:20-alpine AS base
+
+WORKDIR /app
+
+# Install system dependencies for Sharp
+RUN apk add --no-cache python3 make g++ vips-dev
+
+# Copy package files
+COPY package.json package-lock.json* ./
+COPY worker/package.json ./worker/
+COPY packages/event-bus/package*.json ./packages/event-bus/
+COPY packages/job-queue/package*.json ./packages/job-queue/
+COPY packages/storage-client/package*.json ./packages/storage-client/
+COPY packages/storage-core/package*.json ./packages/storage-core/
+
+# Install all dependencies including dev dependencies
+RUN npm install
+
+# Copy source code
+COPY worker ./worker
+COPY shared-infra ./shared-infra/
+
+# Set working directory to worker
+WORKDIR /app/worker
+
+# Start the worker in development mode
+CMD ["npm", "run", "dev"]

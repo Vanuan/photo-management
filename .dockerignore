@@ -1,0 +1,39 @@
+# Dependencies
+node_modules
+api-gateway/node_modules
+shared-infra/node_modules
+shared-infra/packages/*/node_modules
+worker/node_modules
+frontend/node_modules
+
+# Build outputs
+dist
+api-gateway/dist
+shared-infra/packages/*/dist
+worker/dist
+frontend/dist
+
+# Logs
+logs
+*.log
+
+# Runtime data
+tmp
+temp
+
+# Environment files (should be passed through other means)
+.env
+.env.local
+.env.*.local
+
+# IDE files
+.vscode
+.idea
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Docker files (to avoid including other Docker files in context)
+Dockerfile.*
+docker-compose.*.yml

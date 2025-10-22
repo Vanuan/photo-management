@@ -5,13 +5,17 @@
   "workspaces": [
     "api-gateway",
     "shared-infra",
-    "shared-infra/packages/*",
+    "packages/storage-core",
+    "packages/storage-client",
+    "packages/storage-service",
+    "packages/event-bus",
+    "packages/job-queue",
     "worker",
     "frontend"
   ],
   "scripts": {
     "install-all": "npm install",
-    "build-all": "npm run build -ws",
+    "build-all": "npm run build -ws --if-present",
     "type-check-all": "npm run type-check -ws",
     "test:integration": "jest --config jest.integration.config.js",
     "test:e2e": "jest --config jest.e2e.config.js --runInBand",
