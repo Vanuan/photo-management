@@ -18,8 +18,8 @@ try {
 }
 
 const SERVICES = {
-  apiGateway: process.env.API_GATEWAY_URL || "http://localhost:3000",
-  storageService: process.env.STORAGE_SERVICE_URL || "http://localhost:3002",
+  apiGateway: process.env.API_GATEWAY_URL || "http://localhost:3002",
+  storageService: process.env.STORAGE_SERVICE_URL || "http://localhost:3003",
   redis: {
     host: process.env.REDIS_HOST || "localhost",
     port: parseInt(process.env.REDIS_PORT || "6379", 10),
@@ -121,8 +121,8 @@ async function waitForMinIO(
 
   console.log(`Waiting for MinIO at ${host}:${port}`);
 
-  const accessKey = process.env.MINIO_ACCESS_KEY || "minioadmin";
-  const secretKey = process.env.MINIO_SECRET_KEY || "minioadmin";
+  const accessKey = process.env.MINIO_ACCESS_KEY || "ciaccess";
+  const secretKey = process.env.MINIO_SECRET_KEY || "cisecret";
 
   const client = new MinioClient({
     endPoint: host,
@@ -191,8 +191,8 @@ async function clearMinIO(): Promise<void> {
   }
 
   console.log("Clearing MinIO buckets...");
-  const accessKey = process.env.MINIO_ACCESS_KEY || "minioadmin";
-  const secretKey = process.env.MINIO_SECRET_KEY || "minioadmin";
+  const accessKey = process.env.MINIO_ACCESS_KEY || "ciaccess";
+  const secretKey = process.env.MINIO_SECRET_KEY || "cisecret";
 
   const client = new MinioClient({
     endPoint: SERVICES.minio.host,

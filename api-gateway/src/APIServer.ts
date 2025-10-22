@@ -144,9 +144,11 @@ export class APIServer {
     this.server = http.createServer(this.app);
     this.io = new SocketIOServer(this.server, {
       cors: {
-        origin: process.env.ALLOWED_ORIGINS?.split(',') || ["http://localhost:3000"],
-        methods: ["GET", "POST"]
-      }
+        origin: process.env.ALLOWED_ORIGINS?.split(",") || [
+          "http://localhost:3000",
+        ],
+        methods: ["GET", "POST"],
+      },
     });
 
     // Initialize StorageClient
@@ -213,8 +215,8 @@ export class APIServer {
   }
 
   private setupSocketIO(): void {
-    this.io.on('connection', (socket: any) => {
-      console.log('Client connected via WebSocket:', socket.id);
+    this.io.on("connection", (socket: any) => {
+      console.log("Client connected via WebSocket:", socket.id);
 
       const { clientId, userId, sessionId } = socket.handshake.auth;
 
@@ -223,8 +225,8 @@ export class APIServer {
       if (userId) socket.join(`user:${userId}`);
       if (sessionId) socket.join(`session:${sessionId}`);
 
-      socket.on('disconnect', () => {
-        console.log('Client disconnected:', socket.id);
+      socket.on("disconnect", () => {
+        console.log("Client disconnected:", socket.id);
       });
     });
   }
@@ -232,9 +234,7 @@ export class APIServer {
   private async initializeSharedInfra(): Promise<void> {
     console.log("Connecting to shared infrastructure...");
     await this.eventBusClient.connect(); // EventBusClient has a connect method
-    // JobCoordinator connect is handled internally by BullMQ when operations are performed,
-    // or by `initialize` directly if it has a specific connect method.
-    // For now, assuming `createJobQueueCoordinator` sets up connections.
+    await this.jobCoordinatorClient.initialize();
     console.log("Shared infrastructure connection setup initiated.");
   }
 
@@ -319,11 +319,13 @@ export class APIServer {
 
         // WebSocket broadcast
         if (event.data.userId) {
-          this.io.to(`user:${event.data.userId}`).emit('photo.processing.completed', {
-            photoId: event.data.photoId,
-            status: 'completed',
-            timestamp: new Date().toISOString()
-          });
+          this.io
+            .to(`user:${event.data.userId}`)
+            .emit("photo.processing.completed", {
+              photoId: event.data.photoId,
+              status: "completed",
+              timestamp: new Date().toISOString(),
+            });
         }
 
         // Update photo metadata in storage and notify user
@@ -353,12 +355,14 @@ export class APIServer {
 
         // WebSocket broadcast
         if (event.data.userId) {
-          this.io.to(`user:${event.data.userId}`).emit('photo.processing.failed', {
-            photoId: event.data.photoId,
-            status: 'failed',
-            error: event.data.error?.message || "Unknown reason",
-            timestamp: new Date().toISOString()
-          });
+          this.io
+            .to(`user:${event.data.userId}`)
+            .emit("photo.processing.failed", {
+              photoId: event.data.photoId,
+              status: "failed",
+              error: event.data.error?.message || "Unknown reason",
+              timestamp: new Date().toISOString(),
+            });
         }
 
         // Update photo metadata in storage and notify user
@@ -388,12 +392,14 @@ export class APIServer {
 
         // WebSocket broadcast
         if (event.data.userId) {
-          this.io.to(`user:${event.data.userId}`).emit('photo.processing.progress', {
-            photoId: event.data.photoId,
-            status: 'in_progress',
-            progress: event.data.progress,
-            timestamp: new Date().toISOString()
-          });
+          this.io
+            .to(`user:${event.data.userId}`)
+            .emit("photo.processing.progress", {
+              photoId: event.data.photoId,
+              status: "in_progress",
+              progress: event.data.progress,
+              timestamp: new Date().toISOString(),
+            });
         }
 
         // Optionally update photo metadata in storage or notify user
@@ -423,11 +429,11 @@ export class APIServer {
       if (!req.file) {
         console.log("No file provided in request");
         // WebSocket error notification
-        const clientId = req.body.clientId || req.headers['x-client-id'];
+        const clientId = req.body.clientId || req.headers["x-client-id"];
         if (clientId) {
-          this.io.to(`client:${clientId}`).emit('photo.upload.failed', {
+          this.io.to(`client:${clientId}`).emit("photo.upload.failed", {
             error: "No photo file provided.",
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
           });
         }
 
@@ -439,7 +445,8 @@ export class APIServer {
       }
 
       const userId = (req.headers["x-user-id"] as string) || "anonymous";
-      const clientId = req.body.clientId || req.headers['x-client-id'] || userId;
+      const clientId =
+        req.body.clientId || req.headers["x-client-id"] || userId;
       const uploadTimestamp = new Date().toISOString();
       const { originalname, mimetype, size, buffer } = req.file;
 
@@ -461,7 +468,10 @@ export class APIServer {
       // Store the photo using StorageClient
       let storedPhotoResult: PhotoResult;
       try {
-        storedPhotoResult = await this.storageClient.storePhoto(buffer, storePhotoOptions);
+        storedPhotoResult = await this.storageClient.storePhoto(
+          buffer,
+          storePhotoOptions,
+        );
         console.log("Photo stored successfully:", storedPhotoResult);
       } catch (error) {
         console.error("Failed to store photo in StorageClient:", error);
@@ -514,12 +524,12 @@ export class APIServer {
 
       // WebSocket notification for upload
       if (clientId) {
-        this.io.to(`client:${clientId}`).emit('photo.uploaded', {
+        this.io.to(`client:${clientId}`).emit("photo.uploaded", {
           photoId: photoProcessingJob.photoId,
           filename: photoProcessingJob.filename,
-          status: 'queued',
+          status: "queued",
           jobId: photoProcessingJob.id,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
       }
 
@@ -553,18 +563,21 @@ export class APIServer {
         status: "pending",
         // Inform client about WebSocket events
         realtimeUpdates: true,
-        subscribeEvents: [`photo:${storedPhotoResult.id}`, `client:${clientId}`]
+        subscribeEvents: [
+          `photo:${storedPhotoResult.id}`,
+          `client:${clientId}`,
+        ],
       });
     } catch (error: any) {
       console.error("Error handling photo upload:", error);
       console.error("Error stack:", error.stack);
 
       // WebSocket error notification
-      const clientId = req.body.clientId || req.headers['x-client-id'];
+      const clientId = req.body.clientId || req.headers["x-client-id"];
       if (clientId) {
-        this.io.to(`client:${clientId}`).emit('photo.upload.failed', {
+        this.io.to(`client:${clientId}`).emit("photo.upload.failed", {
           error: error.message,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
       }
 
@@ -846,15 +859,13 @@ export class APIServer {
 
       // WebSocket health metrics
       const websocketHealth = {
-        status: 'healthy',
+        status: "healthy",
         connectedClients: this.io.engine.clientsCount,
-        activeRooms: Object.keys(this.io.sockets.adapter.rooms).length
+        activeRooms: Object.keys(this.io.sockets.adapter.rooms).length,
       };
 
       // Add WebSocket health to details
       (healthStatus.details as any).websocket = websocketHealth;
-
-
 
       if (!isStorageOk || !isEventBusOk || !isJobQueueOk) {
         healthStatus.status = "degraded";
@@ -952,9 +963,9 @@ export class APIServer {
     console.log("Shutting down API Gateway service...");
 
     // Notify WebSocket clients
-    this.io.emit('system.maintenance', {
-      message: 'Server is shutting down for maintenance',
-      timestamp: new Date().toISOString()
+    this.io.emit("system.maintenance", {
+      message: "Server is shutting down for maintenance",
+      timestamp: new Date().toISOString(),
     });
 
     // Close Socket.io
