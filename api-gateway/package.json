@@ -6,7 +6,8 @@
   "scripts": {
     "clean": "rm -rf dist",
     "type-check": "tsc --noEmit",
-    "build": "npm run clean && npm run type-check && tsc",
+    "build": "tsc -p tsconfig.json",
+    "build-ci": "npm run clean && npm run type-check && tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "nodemon --watch \"src/**/*.ts,index.ts\" --exec \"ts-node --env-file=.env\" index.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -15,14 +16,15 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@shared-infra/event-bus": "*",
+    "@shared-infra/job-queue": "*",
+    "@shared-infra/storage-client": "*",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^4.19.2",
     "multer": "^2.0.2",
-    "uuid": "^9.0.1",
-    "@shared-infra/event-bus": "*",
-    "@shared-infra/job-queue": "*",
-    "@shared-infra/storage-client": "*"
+    "socket.io": "^4.8.1",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

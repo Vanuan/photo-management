@@ -421,27 +421,49 @@ export class StorageClient {
   }
 
   async healthCheck(): Promise<any> {
-    try {
-      const response = await this.httpClient.get('/api/v1/health', { timeout: 5000 });
+    const tryPaths = ['/api/v1/health', '/health'];
+    let lastError: any = null;
 
-      // Validate response structure
-      if (!response.data || typeof response.data !== 'object') {
-        throw new Error('Invalid health check response structure');
+    for (const path of tryPaths) {
+      try {
+        const response = await this.httpClient.get(path, { timeout: 5000 });
+        if (!response || typeof response.data !== 'object') {
+          throw new StorageError('Invalid health check response');
+        }
+
+        // Handle ApiResponse structured responses
+        if ('success' in response.data) {
+          if (response.data.success !== true) {
+            throw new StorageError('Health check reported failure');
+          }
+          // For success: true, ensure we have data field
+          if (!('data' in response.data)) {
+            throw new StorageError('Invalid health check response: missing data field');
+          }
+          // Even if data field exists, it should not be null
+          if (response.data.data === null) {
+            throw new StorageError('Invalid health check response: data field is null');
+          }
+          return response.data.data;
+        }
+
+        // Accept direct data responses (no envelope)
+        return response.data;
+      } catch (error) {
+        // If the error is already a storage error type, throw it immediately
+        const processedError = this.handleError(error, 'Health check failed');
+        if (processedError instanceof StorageConnectionError) {
+          // For connection errors, log the error and don't retry other paths
+          this.logger.error('Health check failed', { error: String(error) });
+          throw processedError;
+        }
+        lastError = error;
+        // Try next path
       }
-
-      if (!response.data.success) {
-        throw new Error('Health check reported failure');
-      }
-
-      if (!response.data.data) {
-        throw new Error('Health check missing data');
-      }
-
-      return response.data.data;
-    } catch (error) {
-      this.logger.error('Health check failed', { error: (error as Error).message });
-      throw this.handleError(error, 'Health check failed');
     }
+
+    this.logger.error('Health check failed', { error: String(lastError) });
+    throw this.handleError(lastError, 'Health check failed');
   }
 
   async clearCache(): Promise<void> {
@@ -696,6 +718,11 @@ export class StorageClient {
       }
     }
 
+    // Handle specific error codes first
+    if ((error as any).code === 'ETIMEDOUT') {
+      return new StorageConnectionError('Storage service request timed out');
+    }
+
     if ((error as any).code === 'ECONNREFUSED' || (error as any).code === 'ENOTFOUND') {
       return new StorageConnectionError('Unable to connect to storage service');
     }
@@ -723,10 +750,6 @@ export class StorageClient {
         default:
           return new StorageError(message);
       }
-    }
-
-    if ((error as any).code === 'ETIMEDOUT') {
-      return new StorageConnectionError('Storage service request timed out');
     }
 
     // For network errors and other generic errors, prioritize the default message

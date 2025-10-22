@@ -4,6 +4,7 @@ import multer from "multer";
 import { PhotoPage } from "@shared-infra/storage-core";
 import { v4 as uuidv4 } from "uuid";
 import cors from "cors";
+import { Server as SocketIOServer } from "socket.io";
 
 // Import shared-infra packages using aliases and correct exports
 import {
@@ -132,6 +133,7 @@ interface AggregateHealthStatus {
 export class APIServer {
   private app: express.Application;
   private server: http.Server;
+  private io: SocketIOServer;
   private storageClient: StorageClient;
   private eventBusClient: EventBusClient;
   private jobCoordinatorClient: JobQueueCoordinator;
@@ -140,6 +142,14 @@ export class APIServer {
   constructor() {
     this.app = express();
     this.server = http.createServer(this.app);
+    this.io = new SocketIOServer(this.server, {
+      cors: {
+        origin: process.env.ALLOWED_ORIGINS?.split(",") || [
+          "http://localhost:3000",
+        ],
+        methods: ["GET", "POST"],
+      },
+    });
 
     // Initialize StorageClient
     this.storageClient = new StorageClient({
@@ -199,16 +209,32 @@ export class APIServer {
     await this.verifyConnections();
     this.setupMiddleware();
     this.setupRoutes();
+    this.setupSocketIO();
     await this.setupEventSubscriptions();
     this.setupGracefulShutdown();
+  }
+
+  private setupSocketIO(): void {
+    this.io.on("connection", (socket: any) => {
+      console.log("Client connected via WebSocket:", socket.id);
+
+      const { clientId, userId, sessionId } = socket.handshake.auth;
+
+      // Join rooms for targeted messaging
+      if (clientId) socket.join(`client:${clientId}`);
+      if (userId) socket.join(`user:${userId}`);
+      if (sessionId) socket.join(`session:${sessionId}`);
+
+      socket.on("disconnect", () => {
+        console.log("Client disconnected:", socket.id);
+      });
+    });
   }
 
   private async initializeSharedInfra(): Promise<void> {
     console.log("Connecting to shared infrastructure...");
     await this.eventBusClient.connect(); // EventBusClient has a connect method
-    // JobCoordinator connect is handled internally by BullMQ when operations are performed,
-    // or by `initialize` directly if it has a specific connect method.
-    // For now, assuming `createJobQueueCoordinator` sets up connections.
+    await this.jobCoordinatorClient.initialize();
     console.log("Shared infrastructure connection setup initiated.");
   }
 
@@ -262,7 +288,7 @@ export class APIServer {
     console.log("Setting up routes...");
     this.app.post(
       "/photos/upload",
-      this.upload.single("photo"),
+      this.upload.single("photo") as any,
       this.handlePhotoUpload.bind(this),
     );
     this.app.get("/photos", this.handleListPhotos.bind(this));
@@ -290,6 +316,18 @@ export class APIServer {
         console.log(
           `Photo processing completed for photoId: ${event.data.photoId}`,
         );
+
+        // WebSocket broadcast
+        if (event.data.userId) {
+          this.io
+            .to(`user:${event.data.userId}`)
+            .emit("photo.processing.completed", {
+              photoId: event.data.photoId,
+              status: "completed",
+              timestamp: new Date().toISOString(),
+            });
+        }
+
         // Update photo metadata in storage and notify user
         await this.storageClient.updatePhotoMetadata(event.data.photoId, {
           processing_status: "completed", // Use processing_status from StorageCorePhotoMetadata
@@ -314,6 +352,19 @@ export class APIServer {
         console.error(
           `Photo processing failed for photoId: ${event.data.photoId}. Reason: ${event.data.error?.message || "Unknown reason"}`,
         );
+
+        // WebSocket broadcast
+        if (event.data.userId) {
+          this.io
+            .to(`user:${event.data.userId}`)
+            .emit("photo.processing.failed", {
+              photoId: event.data.photoId,
+              status: "failed",
+              error: event.data.error?.message || "Unknown reason",
+              timestamp: new Date().toISOString(),
+            });
+        }
+
         // Update photo metadata in storage and notify user
         await this.storageClient.updatePhotoMetadata(event.data.photoId, {
           processing_status: "failed", // Use processing_status
@@ -338,6 +389,19 @@ export class APIServer {
         console.log(
           `Photo processing progress for photoId: ${event.data.photoId}. Progress: ${event.data.progress}%`,
         );
+
+        // WebSocket broadcast
+        if (event.data.userId) {
+          this.io
+            .to(`user:${event.data.userId}`)
+            .emit("photo.processing.progress", {
+              photoId: event.data.photoId,
+              status: "in_progress",
+              progress: event.data.progress,
+              timestamp: new Date().toISOString(),
+            });
+        }
+
         // Optionally update photo metadata in storage or notify user
         if (event.data.userId) {
           await this.eventBusClient.publishToUser(
@@ -363,6 +427,16 @@ export class APIServer {
   ): Promise<void> {
     try {
       if (!req.file) {
+        console.log("No file provided in request");
+        // WebSocket error notification
+        const clientId = req.body.clientId || req.headers["x-client-id"];
+        if (clientId) {
+          this.io.to(`client:${clientId}`).emit("photo.upload.failed", {
+            error: "No photo file provided.",
+            timestamp: new Date().toISOString(),
+          });
+        }
+
         res.status(400).json({
           error: ErrorCategory.Validation,
           message: "No photo file provided.",
@@ -371,6 +445,8 @@ export class APIServer {
       }
 
       const userId = (req.headers["x-user-id"] as string) || "anonymous";
+      const clientId =
+        req.body.clientId || req.headers["x-client-id"] || userId;
       const uploadTimestamp = new Date().toISOString();
       const { originalname, mimetype, size, buffer } = req.file;
 
@@ -388,9 +464,23 @@ export class APIServer {
         // We pass enough info for it to create the Photo record
       };
 
+      console.log("Attempting to store photo using StorageClient...");
       // Store the photo using StorageClient
-      const storedPhotoResult: PhotoResult =
-        await this.storageClient.storePhoto(buffer, storePhotoOptions);
+      let storedPhotoResult: PhotoResult;
+      try {
+        storedPhotoResult = await this.storageClient.storePhoto(
+          buffer,
+          storePhotoOptions,
+        );
+        console.log("Photo stored successfully:", storedPhotoResult);
+      } catch (error) {
+        console.error("Failed to store photo in StorageClient:", error);
+        if (error instanceof Error) {
+          throw new Error(`StorageClient error: ${error.message}`);
+        } else {
+          throw new Error(`StorageClient error: ${String(error)}`);
+        }
+      }
 
       if (!storedPhotoResult.id) {
         throw new Error("Failed to store photo, no id returned.");
@@ -413,26 +503,57 @@ export class APIServer {
         ], // Example operations
       };
 
-      await this.jobCoordinatorClient.enqueueJob(
-        "photo-processing",
-        photoProcessingJob,
-        { jobId: photoProcessingJob.id },
-      );
-      console.log(
-        `Enqueued photo processing job for photoId: ${photoProcessingJob.photoId}`,
-      );
+      console.log("Attempting to enqueue photo processing job...");
+      try {
+        await this.jobCoordinatorClient.enqueueJob(
+          "photo-processing",
+          photoProcessingJob,
+          { jobId: photoProcessingJob.id },
+        );
+        console.log(
+          `Enqueued photo processing job for photoId: ${photoProcessingJob.photoId}`,
+        );
+      } catch (error) {
+        console.error("Failed to enqueue photo processing job:", error);
+        if (error instanceof Error) {
+          throw new Error(`Job queue error: ${error.message}`);
+        } else {
+          throw new Error(`Job queue error: ${String(error)}`);
+        }
+      }
+
+      // WebSocket notification for upload
+      if (clientId) {
+        this.io.to(`client:${clientId}`).emit("photo.uploaded", {
+          photoId: photoProcessingJob.photoId,
+          filename: photoProcessingJob.filename,
+          status: "queued",
+          jobId: photoProcessingJob.id,
+          timestamp: new Date().toISOString(),
+        });
+      }
 
       // Publish photo.uploaded event
-      await this.eventBusClient.publish("photo.uploaded", {
-        photoId: photoProcessingJob.photoId,
-        userId: photoProcessingJob.userId,
-        filename: photoProcessingJob.filename,
-        uploadTimestamp: photoProcessingJob.uploadTimestamp,
-        status: "pending", // Event status
-      });
-      console.log(
-        `Published photo.uploaded event for photoId: ${photoProcessingJob.photoId}`,
-      );
+      console.log("Attempting to publish photo.uploaded event...");
+      try {
+        await this.eventBusClient.publish("photo.uploaded", {
+          photoId: photoProcessingJob.photoId,
+          userId: photoProcessingJob.userId,
+          filename: photoProcessingJob.filename,
+          uploadTimestamp: photoProcessingJob.uploadTimestamp,
+          status: "pending", // Event status
+        });
+        console.log(
+          `Published photo.uploaded event for photoId: ${photoProcessingJob.photoId}`,
+        );
+      } catch (error) {
+        console.error("Failed to publish photo.uploaded event:", error);
+        if (error instanceof Error) {
+          throw new Error(`Event bus error: ${error.message}`);
+        } else {
+          throw new Error(`Event bus error: ${String(error)}`);
+        }
+      }
 
       res.status(202).json({
         message: "Photo uploaded and being processed",
@@ -440,9 +561,26 @@ export class APIServer {
         userId: userId,
         filename: originalname,
         status: "pending",
+        // Inform client about WebSocket events
+        realtimeUpdates: true,
+        subscribeEvents: [
+          `photo:${storedPhotoResult.id}`,
+          `client:${clientId}`,
+        ],
       });
     } catch (error: any) {
       console.error("Error handling photo upload:", error);
+      console.error("Error stack:", error.stack);
+
+      // WebSocket error notification
+      const clientId = req.body.clientId || req.headers["x-client-id"];
+      if (clientId) {
+        this.io.to(`client:${clientId}`).emit("photo.upload.failed", {
+          error: error.message,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       res.status(500).json({
         error: ErrorCategory.Internal,
         message: error.message || "Internal server error during photo upload.",
@@ -719,6 +857,16 @@ export class APIServer {
       const isJobQueueOk =
         (healthStatus.details?.jobQueue as any)?.status === "healthy";
 
+      // WebSocket health metrics
+      const websocketHealth = {
+        status: "healthy",
+        connectedClients: this.io.engine.clientsCount,
+        activeRooms: Object.keys(this.io.sockets.adapter.rooms).length,
+      };
+
+      // Add WebSocket health to details
+      (healthStatus.details as any).websocket = websocketHealth;
+
       if (!isStorageOk || !isEventBusOk || !isJobQueueOk) {
         healthStatus.status = "degraded";
         healthStatus.message =
@@ -813,6 +961,16 @@ export class APIServer {
 
   private async shutdown(): Promise<void> {
     console.log("Shutting down API Gateway service...");
+
+    // Notify WebSocket clients
+    this.io.emit("system.maintenance", {
+      message: "Server is shutting down for maintenance",
+      timestamp: new Date().toISOString(),
+    });
+
+    // Close Socket.io
+    this.io.close();
+
     // Close HTTP server
     this.server.close(() => {
       console.log("HTTP server closed.");

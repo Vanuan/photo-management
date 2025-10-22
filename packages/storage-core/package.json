@@ -9,7 +9,7 @@
     "migrations/**/*"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "build:watch": "tsc --watch",
     "clean": "rm -rf dist",
     "test": "jest",

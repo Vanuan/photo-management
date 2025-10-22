@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "references": [
+    {
+      "path": "../packages/event-bus/tsconfig.build.json"
+    },
+    {
+      "path": "../packages/job-queue/tsconfig.build.json"
+    },
+    {
+      "path": "../packages/storage-client/tsconfig.build.json"
+    },
+    {
+      "path": "../packages/storage-core/tsconfig.build.json"
+    }
+  ]
+}

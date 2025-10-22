@@ -1,6 +1,7 @@
 import sharp from "sharp";
-import { StorageCoordinator } from "@shared-infra/storage-client";
-import { EventBusService } from "@shared-infra/event-bus";
+import Minio from "minio";
+import { StorageClient } from "@shared-infra/storage-client";
+import { EventBusClient } from "@shared-infra/event-bus";
 import config from "./config";
 
 /**
@@ -36,6 +37,7 @@ export interface ProcessingContext {
   userId: string;
   originalFileKey: string;
   mimeType: string;
+  bucket?: string;
   imageBuffer: Buffer | null;
   extractedMetadata: object;
   thumbnails: Array<{ size: string; fileKey: string }>;
@@ -54,10 +56,12 @@ interface Processor {
 // --- Processing Pipeline Stages ---
 
 class ValidationProcessor implements Processor {
-  private storage: StorageCoordinator;
+  private minio: Minio.Client;
+  private storageClient: StorageClient;
 
-  constructor(storage: StorageCoordinator) {
-    this.storage = storage;
+  constructor(minio: Minio.Client, storageClient: StorageClient) {
+    this.minio = minio;
+    this.storageClient = storageClient;
   }
 
   /**
@@ -68,13 +72,18 @@ class ValidationProcessor implements Processor {
   async execute(context: ProcessingContext): Promise<ProcessingContext> {
     console.log(`ValidationProcessor: Validating photo ${context.photoId}`);
 
-    const fileExists = await this.storage.fileExists(
-      config.storage.s3.bucketName,
-      context.originalFileKey,
-    );
-    if (!fileExists) {
+    const photo = await this.storageClient.getPhoto(context.photoId);
+    if (!photo) {
+      throw new Error(`Photo not found: ${context.photoId}`);
+    }
+    context.bucket = photo.bucket;
+    context.originalFileKey = photo.s3_key;
+
+    try {
+      await this.minio.statObject(photo.bucket, photo.s3_key);
+    } catch {
       throw new Error(
-        `Original file not found for photoId: ${context.photoId} at ${context.originalFileKey}`,
+        `Original file not found for photoId: ${context.photoId} at ${photo.bucket}/${photo.s3_key}`
       );
     }
 
@@ -85,10 +94,14 @@ class ValidationProcessor implements Processor {
     }
 
     // Download the image to a buffer for subsequent stages
-    const imageBuffer = await this.storage.getFile(
-      config.storage.s3.bucketName,
-      context.originalFileKey,
-    );
+    const stream = await this.minio.getObject(context.bucket!, context.originalFileKey);
+    const chunks: Buffer[] = [];
+    await new Promise<void>((resolve, reject) => {
+      stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+      stream.on("end", () => resolve());
+      stream.on("error", (err: any) => reject(err));
+    });
+    const imageBuffer = Buffer.concat(chunks);
     context.imageBuffer = imageBuffer;
 
     // Further sharp-based validation can go here, e.g., checking image dimensions, format
@@ -105,11 +118,8 @@ class ValidationProcessor implements Processor {
 }
 
 class MetadataProcessor implements Processor {
-  private storage: StorageCoordinator;
+  constructor() {}
 
-  constructor(storage: StorageCoordinator) {
-    this.storage = storage;
-  }
 
   /**
    * Extracts metadata from the image using sharp.
@@ -168,12 +178,12 @@ class MetadataProcessor implements Processor {
 }
 
 class ThumbnailProcessor implements Processor {
-  private storage: StorageCoordinator;
+  private minio: Minio.Client;
   private thumbnailSizes: number[];
   private optimizationQuality: number;
 
-  constructor(storage: StorageCoordinator) {
-    this.storage = storage;
+  constructor(minio: Minio.Client) {
+    this.minio = minio;
     this.thumbnailSizes = config.photoProcessing.thumbnailSizes;
     this.optimizationQuality = config.photoProcessing.optimizationQuality;
   }
@@ -204,11 +214,13 @@ class ThumbnailProcessor implements Processor {
 
       const thumbnailFileKey = `photos/${context.userId}/${context.photoId}/thumbnail_${size}.jpeg`;
 
-      await this.storage.uploadFile(
-        config.storage.s3.bucketName,
+      await this.minio.putObject(
+        context.bucket!,
         thumbnailFileKey,
         thumbnailBuffer,
-        "image/jpeg",
+        {
+          'Content-Type': 'image/jpeg'
+        }
       );
       context.thumbnails.push({
         size: `${size}x${size}`,
@@ -224,11 +236,11 @@ class ThumbnailProcessor implements Processor {
 }
 
 class OptimizationProcessor implements Processor {
-  private storage: StorageCoordinator;
+  private minio: Minio.Client;
   private optimizationQuality: number;
 
-  constructor(storage: StorageCoordinator) {
-    this.storage = storage;
+  constructor(minio: Minio.Client) {
+    this.minio = minio;
     this.optimizationQuality = config.photoProcessing.optimizationQuality;
   }
 
@@ -255,11 +267,13 @@ class OptimizationProcessor implements Processor {
 
     const optimizedFileKey = `photos/${context.userId}/${context.photoId}/optimized_original.jpeg`;
 
-    await this.storage.uploadFile(
-      config.storage.s3.bucketName,
+    await this.minio.putObject(
+      context.bucket!,
       optimizedFileKey,
       optimizedBuffer,
-      "image/jpeg",
+      {
+        'Content-Type': 'image/jpeg'
+      }
     );
     context.optimizedFileKey = optimizedFileKey;
     console.log(
@@ -272,19 +286,20 @@ class OptimizationProcessor implements Processor {
 // --- Photo Processing Pipeline ---
 
 export class PhotoProcessingPipeline {
-  private storage: StorageCoordinator;
-  private eventBus: EventBusService;
+  private minio: Minio.Client;
+  private storageClient: StorageClient;
+  private eventBus: EventBusClient;
   private processors: Processor[];
 
-  constructor(storage: StorageCoordinator, eventBus: EventBusService) {
-    this.storage = storage;
+  constructor(minio: Minio.Client, storageClient: StorageClient, eventBus: EventBusClient) {
+    this.minio = minio;
+    this.storageClient = storageClient;
     this.eventBus = eventBus;
     this.processors = [
-      new ValidationProcessor(storage),
-      new MetadataProcessor(storage),
-      new ThumbnailProcessor(storage),
-      new OptimizationProcessor(storage),
-      // Add more processors here if needed
+      new ValidationProcessor(minio, storageClient),
+      new MetadataProcessor(),
+      new ThumbnailProcessor(minio),
+      new OptimizationProcessor(minio),
     ];
   }
 
@@ -315,22 +330,25 @@ export class PhotoProcessingPipeline {
     }
 
     // After all processors, publish an event indicating completion
-    const completionEvent = {
-      type: "photo.processed",
-      timestamp: new Date().toISOString(),
-      payload: {
-        photoId: context.photoId,
-        userId: context.userId,
-        originalFileKey: context.originalFileKey,
+    await this.storageClient.updatePhotoMetadata(context.photoId, {
+      processing_status: 'completed',
+      processing_metadata: JSON.stringify({
         optimizedFileKey: context.optimizedFileKey,
         thumbnails: context.thumbnails,
         metadata: context.extractedMetadata,
-        status: "completed",
-      },
-    };
-    await this.eventBus.publish(config.eventBus.channel, completionEvent);
+      }),
+      processing_completed_at: new Date().toISOString(),
+    } as any);
+
+    await this.eventBus.publish('photo.processing.completed', {
+      photoId: context.photoId,
+      userId: context.userId,
+      optimizedFileKey: context.optimizedFileKey,
+      thumbnails: context.thumbnails,
+      metadata: context.extractedMetadata,
+    });
     console.log(
-      `PhotoProcessingPipeline: Pipeline completed for photo ${jobData.photoId}. Event published.`,
+      `PhotoProcessingPipeline: Pipeline completed for photo ${jobData.photoId}.`,
     );
 
     // Return a summary of the processing result
@@ -346,10 +364,3 @@ export class PhotoProcessingPipeline {
   }
 }
 
-export {
-  PhotoProcessingPipeline,
-  ValidationProcessor,
-  MetadataProcessor,
-  ThumbnailProcessor,
-  OptimizationProcessor,
-};

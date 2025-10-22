@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    - cron: '0 2 * * *'
+    - cron: "0 2 * * *"
 
 jobs:
   e2e:
@@ -20,8 +20,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
+      - name: Install dependencies (root)
+        run: npm install
 
       - name: Prepare volumes
         run: |
@@ -42,8 +44,8 @@ jobs:
                 - MINIO_ACCESS_KEY=ciaccess
                 - MINIO_SECRET_KEY=cisecret
           YAML
-      - name: Start services (prod storage + minio)
-        run: docker compose -f shared-infra/docker-compose.yml -f shared-infra/docker-compose.e2e.yml up -d minio storage-service-prod
+      - name: Start services (prod storage + minio + redis)
+        run: docker compose -f shared-infra/docker-compose.yml -f shared-infra/docker-compose.e2e.yml up -d minio storage-service-prod redis
       - name: Wait for MinIO health
         run: |
           for i in {1..24}; do
@@ -73,8 +75,81 @@ jobs:
           echo "Timed out waiting for storage-service-prod";
           exit 1
 
-      - name: Run E2E tests (if present)
-        run: npm run test:e2e --if-present || echo "No E2E tests defined"
+      - name: Build shared packages
+        run: |
+          npm run -w @shared-infra/storage-core build
+          npm run -w @shared-infra/job-queue build || true
+          npm run -w @shared-infra/event-bus build || true
+          npm run -w @shared-infra/storage-client build
+
+      - name: Build API Gateway and Worker
+        run: |
+          npm run -w api-gateway build
+          npm run -w worker build
+
+      - name: Start API Gateway
+        run: |
+          nohup node api-gateway/dist/api-gateway/index.js > api-gateway.log 2>&1 &
+          echo $! > api-gateway.pid
+        env:
+          NODE_ENV: test
+          PORT: "3000"
+          STORAGE_SERVICE_URL: http://localhost:3002
+          REDIS_HOST: localhost
+          REDIS_PORT: "6379"
+          MINIO_ENDPOINT: localhost
+          MINIO_PORT: "9000"
+          MINIO_ACCESS_KEY: ciaccess
+          MINIO_SECRET_KEY: cisecret
+          MINIO_USE_SSL: "false"
+
+      - name: Start Worker
+        run: |
+          nohup node worker/dist/worker/src/index.js > worker.log 2>&1 &
+          echo $! > worker.pid
+        env:
+          NODE_ENV: test
+          REDIS_HOST: localhost
+          REDIS_PORT: "6379"
+          MINIO_ENDPOINT: http://localhost:9000
+          MINIO_ACCESS_KEY: ciaccess
+          MINIO_SECRET_KEY: cisecret
+          S3_BUCKET_NAME: photo-management
+          S3_SSL_ENABLED: "false"
+          S3_FORCE_PATH_STYLE: "true"
+
+      - name: Wait for API Gateway health
+        run: |
+          for i in {1..36}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/health || true)
+            if [ "$STATUS" = "200" ] || [ "$STATUS" = "503" ]; then
+              echo "API Gateway responding ($STATUS)"; exit 0; fi
+            echo "[$i/36] Waiting for API Gateway..."; tail -n 40 api-gateway.log || true; sleep 5; done
+          echo "Timed out waiting for API Gateway"; tail -n +1 api-gateway.log || true; exit 1
+
+      - name: Run E2E tests
+        run: npm run test:e2e
+        env:
+          CI: true
+          NODE_ENV: test
+          API_GATEWAY_URL: http://localhost:3000
+          STORAGE_SERVICE_URL: http://localhost:3002
+          REDIS_HOST: localhost
+          REDIS_PORT: "6379"
+          MINIO_HOST: localhost
+          MINIO_PORT: "9000"
+          MINIO_ACCESS_KEY: ciaccess
+          MINIO_SECRET_KEY: cisecret
+
+      - name: Upload service logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-logs
+          path: |
+            api-gateway.log
+            worker.log
+            docker-logs.txt
 
       - name: Generate test report (if present)
         run: npm run test:report --if-present || echo "No E2E report script defined"

@@ -2,8 +2,10 @@
   "name": "photo-processing-worker",
   "version": "1.0.0",
   "type": "module",
-  "main": "src/index.js",
+  "main": "dist/index.js",
   "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "dev": "nodemon --watch 'src/**/*.ts' --exec 'ts-node' src/index.ts",
     "test": "jest",
@@ -14,6 +16,7 @@
     "@shared-infra/job-queue": "*",
     "@shared-infra/storage-client": "*",
     "@shared-infra/event-bus": "*",
+    "minio": "^7.1.0",
     "sharp": "^0.33.0",
     "dotenv": "^17.2.3",
     "bullmq": "^5.10.1"

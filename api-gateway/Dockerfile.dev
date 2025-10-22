@@ -1,0 +1,29 @@
+# Development Dockerfile for API Gateway
+FROM node:20-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files for dependency installation
+COPY package*.json ./
+COPY api-gateway/package*.json ./api-gateway/
+COPY shared-infra/packages/event-bus/package*.json ./shared-infra/packages/event-bus/
+COPY shared-infra/packages/job-queue/package*.json ./shared-infra/packages/job-queue/
+COPY shared-infra/packages/storage-client/package*.json ./shared-infra/packages/storage-client/
+COPY shared-infra/packages/storage-core/package*.json ./shared-infra/packages/storage-core/
+
+# Install all dependencies including dev dependencies
+RUN npm install
+
+# Copy source code
+COPY api-gateway ./api-gateway/
+COPY shared-infra ./shared-infra/
+
+# Set working directory to API gateway
+WORKDIR /app/api-gateway
+
+# Expose port
+EXPOSE 3000
+
+# Start the service in development mode
+CMD ["npm", "run", "dev"]

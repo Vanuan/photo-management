@@ -1,7 +1,7 @@
 {
-  "name": "@shared-infra/job-queue",
+  "name": "@shared-infra/event-bus",
   "version": "1.0.0",
-  "description": "Job Queue Coordinator library for photo management system",
+  "description": "Event Bus Service library for real-time communication in photo management system",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -9,7 +9,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist",
     "dev": "tsc --watch",
     "test": "jest",
@@ -21,12 +21,15 @@
     "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
-    "bullmq": "^5.0.0",
-    "ioredis": "^5.3.0"
+    "socket.io": "^4.7.0",
+    "socket.io-client": "^4.7.0",
+    "ioredis": "^5.3.0",
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^24.7.2",
+    "@types/uuid": "^9.0.0",
     "eslint": "^9.37.0",
     "jest": "^29.7.0",
     "prettier": "^3.1.0",
@@ -41,11 +44,13 @@
     "npm": ">=9.0.0"
   },
   "keywords": [
-    "job-queue",
-    "bullmq",
+    "event-bus",
+    "socket.io",
     "redis",
-    "task-scheduler",
-    "worker",
+    "real-time",
+    "websocket",
+    "pub-sub",
+    "messaging",
     "photo-processing"
   ],
   "author": "Your Organization",
@@ -53,6 +58,6 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/your-org/receipt-processor.git",
-    "directory": "photo-management/shared-infra/packages/job-queue"
+    "directory": "photo-management/packages/event-bus"
   }
 }

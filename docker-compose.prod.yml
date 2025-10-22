@@ -2,7 +2,7 @@
 # Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 # Or with profile: docker-compose --profile production up -d
 
-version: '3.8'
+version: "3.8"
 
 services:
   # Production Nginx reverse proxy
@@ -59,8 +59,8 @@ services:
   # API Gateway - production mode
   api-gateway:
     build:
-      context: ./api-gateway
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: api-gateway/Dockerfile
     environment:
       - NODE_ENV=production
       - LOG_LEVEL=info

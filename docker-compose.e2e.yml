@@ -1,0 +1,190 @@
+version: "3.8"
+
+services:
+  # Redis for Event Bus and Job Queue
+  redis:
+    image: redis:7-alpine
+    container_name: photo-mgmt-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - photo-network
+
+  # MinIO object storage
+  minio:
+    image: minio/minio:latest
+    container_name: photo-mgmt-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=ciaccess
+      - MINIO_ROOT_PASSWORD=cisecret
+      - MINIO_REGION_NAME=us-east-1
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - photo-network
+
+  # MinIO initialization - create buckets
+  minio-init:
+    image: minio/mc:latest
+    container_name: photo-mgmt-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - photo-network
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set myminio http://minio:9000 ciaccess cisecret; do
+        echo 'Waiting for MinIO...';
+        sleep 2;
+      done;
+      mc mb myminio/photos --ignore-existing;
+      mc mb myminio/thumbnails --ignore-existing;
+      mc policy set download myminio/photos;
+      mc policy set download myminio/thumbnails;
+      echo 'MinIO buckets created successfully';
+      exit 0;
+      "
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile.prod
+    container_name: photo-mgmt-api-gateway
+    ports:
+      - "3002:3000"
+    environment:
+      - NODE_ENV=test
+      - PORT=3000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MINIO_ENDPOINT=minio
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=ciaccess
+      - MINIO_SECRET_KEY=cisecret
+      - MINIO_USE_SSL=false
+      - STORAGE_SERVICE_URL=http://storage-service:3001
+      - LOG_LEVEL=debug
+    volumes:
+      - ./api-gateway:/app/api-gateway
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - photo-network
+    restart: unless-stopped
+
+  # Storage Service
+  storage-service:
+    build:
+      context: ./
+      dockerfile: packages/storage-service/Dockerfile
+      target: development
+    container_name: photo-mgmt-storage-service
+    ports:
+      - "3003:3001"
+    environment:
+      - NODE_ENV=test
+      - PORT=3001
+      - HOST=0.0.0.0
+      - SQLITE_PATH=/app/data/storage.db
+      - MINIO_ENDPOINT=minio
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=ciaccess
+      - MINIO_SECRET_KEY=cisecret
+      - MINIO_USE_SSL=false
+      - MINIO_REGION=us-east-1
+      - CACHE_ENABLED=true
+      - CACHE_TTL=300
+      - CACHE_MAX_SIZE=1000
+      - LOG_LEVEL=debug
+    volumes:
+      - ./packages:/app/packages
+      - storage_data:/app/data
+      - /app/packages/storage-core/node_modules
+      - /app/packages/storage-service/node_modules
+    depends_on:
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - photo-network
+    restart: unless-stopped
+
+  # Worker Service
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    container_name: photo-mgmt-worker
+    environment:
+      - NODE_ENV=test
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MINIO_ENDPOINT=minio
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=ciaccess
+      - MINIO_SECRET_KEY=cisecret
+      - MINIO_USE_SSL=false
+      - STORAGE_SERVICE_URL=http://storage-service:3001
+      - LOG_LEVEL=debug
+      - JOB_QUEUE_NAME=photo-processing
+      - WORKER_CONCURRENCY=2
+    volumes:
+      - ./worker:/app/worker
+    depends_on:
+      redis:
+        condition: service_healthy
+      storage-service:
+        condition: service_healthy
+    networks:
+      - photo-network
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+  storage_data:
+    driver: local
+
+networks:
+  photo-network:
+    driver: bridge
