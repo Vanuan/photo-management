@@ -14,7 +14,7 @@
     "@shared-infra/job-queue": "*",
     "@shared-infra/storage-client": "*",
     "@shared-infra/event-bus": "*",
-    "sharp": "^0.33.0",
+    "sharp": "^0.34.4",
     "dotenv": "^17.2.3",
     "bullmq": "^5.10.1"
   },
