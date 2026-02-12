@@ -32,7 +32,7 @@
   "dependencies": {
     "@shared-infra/storage-core": "^1.0.0",
     "axios": "^1.6.2",
-    "minio": "^7.1.3"
+    "minio": "^8.0.6"
   },
   "devDependencies": {
     "@types/node": "^24.7.2",
